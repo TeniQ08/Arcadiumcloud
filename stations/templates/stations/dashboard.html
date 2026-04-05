@@ -1,0 +1,770 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Arcadium — Control Panel</title>
+  <style>
+    :root{
+      --bg: #0b1020;
+      --panel: #0f172a;
+      --card: #111c33;
+      --muted: #94a3b8;
+      --text: #e5e7eb;
+      --border: rgba(148,163,184,.18);
+      --shadow: 0 10px 24px rgba(0,0,0,.35);
+      --accent: #60a5fa;
+
+      --green: #22c55e;
+      --blue: #3b82f6;
+      --orange: #f59e0b;
+      --red: #ef4444;
+      --gray: #94a3b8;
+    }
+
+    *{ box-sizing:border-box; }
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Liberation Sans", sans-serif;
+      background: radial-gradient(1200px 500px at 15% 0%, rgba(96,165,250,.15), transparent 60%),
+                  radial-gradient(1200px 500px at 85% 0%, rgba(34,197,94,.10), transparent 60%),
+                  var(--bg);
+      color: var(--text);
+    }
+
+    a{ color: var(--accent); text-decoration: none; }
+    a:hover{ text-decoration: underline; }
+
+    .topbar{
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: rgba(15,23,42,.85);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border);
+    }
+    .topbar-inner{
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 14px 18px;
+      display:flex;
+      align-items:center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .brand{
+      display:flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 240px;
+    }
+    .brand h1{
+      font-size: 16px;
+      margin: 0;
+      letter-spacing: .4px;
+    }
+    .brand .user{
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .actions{
+      display:flex;
+      align-items:center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .btn{
+      appearance:none;
+      border: 1px solid var(--border);
+      background: rgba(17,28,51,.85);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: transform .05s ease, border-color .15s ease, background .15s ease;
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .btn:hover{ border-color: rgba(96,165,250,.45); }
+    .btn:active{ transform: translateY(1px); }
+    .btn.primary{ background: rgba(59,130,246,.18); border-color: rgba(59,130,246,.35); }
+    .btn.danger{ background: rgba(239,68,68,.14); border-color: rgba(239,68,68,.35); }
+    .btn:disabled{ opacity: .55; cursor: not-allowed; }
+
+    .container{
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 18px;
+    }
+
+    .stats{
+      display:grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+      margin-bottom: 14px;
+    }
+    .stat{
+      background: rgba(17,28,51,.65);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      padding: 12px;
+    }
+    .stat .label{ color: var(--muted); font-size: 12px; }
+    .stat .value{ font-size: 20px; font-weight: 800; margin-top: 6px; }
+
+    .messages{
+      display:flex;
+      flex-direction: column;
+      gap: 8px;
+      margin: 12px 0;
+    }
+    .alert{
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 10px 12px;
+      background: rgba(17,28,51,.65);
+      box-shadow: var(--shadow);
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .alert .title{ font-weight: 800; font-size: 13px; }
+    .alert .text{ color: var(--muted); font-size: 12px; margin-top: 3px; white-space: pre-wrap; word-break: break-word; }
+    .alert.success{ border-color: rgba(34,197,94,.35); }
+    .alert.error{ border-color: rgba(239,68,68,.35); }
+    .alert .close{
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 16px;
+      line-height: 1;
+      padding: 0 6px;
+    }
+
+    .grid{
+      display:grid;
+      grid-template-columns: repeat(3, minmax(0,1fr));
+      gap: 12px;
+      padding-bottom: 24px;
+    }
+    @media (max-width: 1100px){
+      .grid{ grid-template-columns: repeat(2, minmax(0,1fr)); }
+    }
+    @media (max-width: 700px){
+      .grid{ grid-template-columns: 1fr; }
+    }
+
+    .card{
+      background: rgba(17,28,51,.65);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      padding: 12px;
+      display:flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 170px;
+    }
+
+    /* Subtle state accents (modern, not flashy) */
+    .card.accent-available{
+      border-color: rgba(34,197,94,.28);
+      box-shadow: var(--shadow), 0 0 0 1px rgba(34,197,94,.10), 0 0 28px rgba(34,197,94,.06);
+    }
+    .card.accent-active{
+      border-color: rgba(59,130,246,.30);
+      box-shadow: var(--shadow), 0 0 0 1px rgba(59,130,246,.12), 0 0 28px rgba(59,130,246,.07);
+    }
+    .card.accent-paused{
+      border-color: rgba(245,158,11,.30);
+      box-shadow: var(--shadow), 0 0 0 1px rgba(245,158,11,.12), 0 0 28px rgba(245,158,11,.06);
+    }
+    .card.accent-expired{
+      border-color: rgba(239,68,68,.30);
+      box-shadow: var(--shadow), 0 0 0 1px rgba(239,68,68,.12), 0 0 28px rgba(239,68,68,.06);
+    }
+    .card.accent-maintenance{
+      border-color: rgba(148,163,184,.28);
+      box-shadow: var(--shadow), 0 0 0 1px rgba(148,163,184,.10);
+    }
+    .card.accent-device-fault{
+      border-color: rgba(239,68,68,.32);
+      box-shadow: var(--shadow), 0 0 0 1px rgba(239,68,68,.12), 0 0 24px rgba(239,68,68,.08);
+    }
+
+    .card-header{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .station-name{
+      font-size: 14px;
+      font-weight: 900;
+      letter-spacing: .2px;
+      margin: 0;
+    }
+    .muted{ color: var(--muted); font-size: 12px; }
+    .row{ display:flex; gap: 10px; flex-wrap: wrap; align-items:center; }
+    .badge{
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(2,6,23,.35);
+      font-weight: 800;
+      letter-spacing: .2px;
+      white-space: nowrap;
+    }
+    .badge.available{ border-color: rgba(34,197,94,.40); color: #bbf7d0; }
+    .badge.in_use{ border-color: rgba(59,130,246,.40); color: #bfdbfe; }
+    .badge.maintenance{ border-color: rgba(148,163,184,.35); color: #e2e8f0; }
+    .badge.active{ border-color: rgba(59,130,246,.40); color: #bfdbfe; }
+    .badge.paused{ border-color: rgba(245,158,11,.45); color: #fde68a; }
+    .badge.expired{ border-color: rgba(239,68,68,.45); color: #fecaca; }
+    .badge.device-online{ border-color: rgba(34,197,94,.45); color: #bbf7d0; }
+    .badge.device-offline{ border-color: rgba(148,163,184,.45); color: #e2e8f0; }
+    .badge.device-fault{ border-color: rgba(239,68,68,.50); color: #fecaca; }
+    .badge.device-none{ border-color: rgba(148,163,184,.35); color: #cbd5e1; }
+
+    .device-strip{
+      margin-top: 8px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .device-meta{
+      font-size: 11px;
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    .btn-group{
+      display:flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 2px;
+    }
+
+    .empty{
+      border: 1px dashed rgba(148,163,184,.35);
+      background: rgba(17,28,51,.45);
+      border-radius: 16px;
+      padding: 18px;
+      color: var(--muted);
+      box-shadow: var(--shadow);
+    }
+
+    .kbd{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 12px;
+      color: #cbd5e1;
+      border: 1px solid var(--border);
+      background: rgba(2,6,23,.35);
+      padding: 2px 6px;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <h1>Arcadium Control Panel</h1>
+        <div class="user">
+          {{ request.user.get_full_name|default:request.user.username }} ({{ request.user.role }})
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="refreshBtn" class="btn primary" type="button">Refresh</button>
+        <a class="btn" href="/admin/" target="_blank" rel="noreferrer">Admin</a>
+        <form method="post" action="{% url 'logout' %}" style="margin:0">
+          {% csrf_token %}
+          <button class="btn" type="submit">Logout</button>
+        </form>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="stats" aria-label="Summary">
+      <div class="stat"><div class="label">Total stations</div><div id="statTotalStations" class="value">—</div></div>
+      <div class="stat"><div class="label">Active sessions</div><div id="statActiveSessions" class="value">—</div></div>
+      <div class="stat"><div class="label">Paused sessions</div><div id="statPausedSessions" class="value">—</div></div>
+      <div class="stat"><div class="label">Available stations</div><div id="statAvailableStations" class="value">—</div></div>
+      <div class="stat"><div class="label">Devices online</div><div id="statDevicesOnline" class="value">—</div></div>
+      <div class="stat"><div class="label">Devices offline</div><div id="statDevicesOffline" class="value">—</div></div>
+      <div class="stat"><div class="label">Devices fault</div><div id="statDevicesFault" class="value">—</div></div>
+    </section>
+
+    <section class="messages" id="messages" aria-label="Messages"></section>
+
+    <section id="stations" class="grid" aria-label="Stations">
+      <div class="empty" id="loadingState">Loading stations…</div>
+    </section>
+  </main>
+
+  <script>
+    const sessionsByStationId = new Map();
+    let isLoading = false;
+    let lastStations = [];
+    let countdownTimer = null;
+    let hasLoadedOnce = false;
+
+    function setLoading(loading) {
+      isLoading = loading;
+      const refreshBtn = document.getElementById('refreshBtn');
+      if (refreshBtn) refreshBtn.disabled = loading;
+    }
+
+    function showMessage(kind, text) {
+      const el = document.getElementById('messages');
+      const wrap = document.createElement('div');
+      wrap.className = `alert ${kind || ''}`;
+      const left = document.createElement('div');
+      const title = document.createElement('div');
+      title.className = 'title';
+      title.textContent = (kind === 'success') ? 'Success' : (kind === 'error' ? 'Error' : 'Info');
+      const body = document.createElement('div');
+      body.className = 'text';
+      body.textContent = String(text);
+      left.appendChild(title);
+      left.appendChild(body);
+      const close = document.createElement('button');
+      close.className = 'close';
+      close.type = 'button';
+      close.textContent = '×';
+      close.onclick = () => wrap.remove();
+      wrap.appendChild(left);
+      wrap.appendChild(close);
+      el.prepend(wrap);
+    }
+
+    // Quick signal that JS is running
+    showMessage('success', 'Dashboard script loaded.');
+
+    // Surface JS errors on-page (helps debugging in production kiosks)
+    window.addEventListener('error', (event) => {
+      try {
+        showMessage('error', `Dashboard error: ${event.message}`);
+      } catch (e) { /* ignore */ }
+    });
+    window.addEventListener('unhandledrejection', (event) => {
+      try {
+        showMessage('error', `Dashboard promise error: ${formatError(event.reason)}`);
+      } catch (e) { /* ignore */ }
+    });
+
+    function badgeClassForStationStatus(status) {
+      if (status === 'available') return 'available';
+      if (status === 'in_use') return 'in_use';
+      if (status === 'maintenance') return 'maintenance';
+      return 'maintenance';
+    }
+
+    function badgeClassForSessionStatus(status) {
+      if (status === 'active') return 'active';
+      if (status === 'paused') return 'paused';
+      if (status === 'expired') return 'expired';
+      return 'expired';
+    }
+
+    function badgeClassForDeviceStatus(status) {
+      if (status === 'online') return 'device-online';
+      if (status === 'offline') return 'device-offline';
+      if (status === 'fault') return 'device-fault';
+      return 'device-none';
+    }
+
+    function escapeHtml(s) {
+      const d = document.createElement('div');
+      d.textContent = s == null ? '' : String(s);
+      return d.innerHTML;
+    }
+
+    function formatError(err) {
+      try {
+        if (err && Object.prototype.hasOwnProperty.call(err, 'detail')) {
+          const d = err.detail;
+          if (Array.isArray(d)) return d.join(', ');
+          return String(d);
+        }
+      } catch (e) { /* ignore */ }
+      return JSON.stringify(err);
+    }
+
+    function formatRemaining(expectedEndIso) {
+      if (!expectedEndIso) return '';
+      const end = new Date(expectedEndIso);
+      const now = new Date();
+      const ms = end.getTime() - now.getTime();
+      const sign = ms >= 0 ? '' : '-';
+      const abs = Math.abs(ms);
+      const totalSeconds = Math.floor(abs / 1000);
+      const mins = Math.floor(totalSeconds / 60);
+      const secs = totalSeconds % 60;
+      return `${sign}${mins}m ${secs}s`;
+    }
+
+    function updateCountdowns() {
+      const nodes = document.querySelectorAll('[data-expected-end]');
+      for (const node of nodes) {
+        const iso = node.getAttribute('data-expected-end');
+        if (!iso) {
+          node.textContent = '';
+          continue;
+        }
+        const rem = formatRemaining(iso);
+        node.textContent = rem ? `Remaining: ${rem}` : '';
+      }
+    }
+
+    function validatePositiveInt(value) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return null;
+      const i = Math.floor(n);
+      if (i <= 0) return null;
+      return i;
+    }
+
+    function disableWhile(btn, promise) {
+      if (!btn) return promise;
+      const prev = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Working...';
+      return promise.finally(() => {
+        btn.disabled = false;
+        btn.textContent = prev;
+      });
+    }
+
+    async function apiGet(path) {
+      const res = await fetch(path, { headers: { 'Accept': 'application/json' }});
+      const text = await res.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch (e) { /* ignore */ }
+      if (!res.ok) {
+        throw data || { detail: [text || ('HTTP ' + res.status)] };
+      }
+      return data;
+    }
+
+    async function apiPost(path, body) {
+      const res = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(body || {})
+      });
+      const text = await res.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch (e) { /* ignore */ }
+      if (!res.ok) {
+        throw data || { detail: [text || ('HTTP ' + res.status)] };
+      }
+      return data;
+    }
+
+    function renderStations(stations) {
+      const root = document.getElementById('stations');
+      root.innerHTML = '';
+
+      if (!stations || stations.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'empty';
+        empty.innerHTML = `
+          <div style="font-weight:900; color:#e2e8f0; margin-bottom:6px;">No active stations found</div>
+          <div>Create a <span class="kbd">PricingPlan</span> and at least one <span class="kbd">Station</span> in <a href="/admin/" target="_blank" rel="noreferrer">Admin</a>.</div>
+        `;
+        root.appendChild(empty);
+        return;
+      }
+
+      for (const st of stations) {
+        const div = document.createElement('div');
+        div.className = 'card';
+
+        const session = sessionsByStationId.get(st.id) || null;
+        const remaining = session ? formatRemaining(session.expected_end_time) : '';
+
+        // Accent priority: maintenance > device fault > session status > available-with-no-session > other
+        if (st.status === 'maintenance') div.classList.add('accent-maintenance');
+        else if (st.device && st.device.status === 'fault') div.classList.add('accent-device-fault');
+        else if (session && session.status === 'active') div.classList.add('accent-active');
+        else if (session && session.status === 'paused') div.classList.add('accent-paused');
+        else if (session && session.status === 'expired') div.classList.add('accent-expired');
+        else if (!session && st.status === 'available') div.classList.add('accent-available');
+        else if (!session && st.status === 'in_use') div.classList.add('accent-active');
+
+        const stationBadge = `<span class="badge ${badgeClassForStationStatus(st.status)}">${st.status}</span>`;
+        const sessionBadge = session ? `<span class="badge ${badgeClassForSessionStatus(session.status)}">${session.status}</span>` : '';
+
+        const dev = st.device;
+        const deviceStrip = dev
+          ? `
+          <div class="device-strip">
+            <div class="row" style="justify-content: space-between; align-items: center;">
+              <span class="muted">Controller</span>
+              <span class="badge ${badgeClassForDeviceStatus(dev.status)}">${escapeHtml(dev.status)}</span>
+            </div>
+            <div class="muted" style="margin-top:4px;">
+              Relay: <strong style="color:#e2e8f0;font-weight:700;">${dev.relay_state ? 'On' : 'Off'}</strong>
+              · Fault: <span style="font-family:ui-monospace,monospace;">${escapeHtml(dev.fault_state)}</span>
+            </div>
+            ${dev.last_heartbeat_at ? `<div class="device-meta">Last heartbeat: ${escapeHtml(dev.last_heartbeat_at)}</div>` : '<div class="device-meta">No heartbeat yet</div>'}
+          </div>`
+          : `
+          <div class="device-strip">
+            <div class="muted">No controller registered — link a device in <a href="/admin/" target="_blank" rel="noreferrer">Admin</a> (<span class="kbd">StationDevice</span>).</div>
+          </div>`;
+
+        div.innerHTML = `
+          <div class="card-header">
+            <div>
+              <div class="station-name">${escapeHtml(st.name)}</div>
+              <div class="muted">Plan: ${escapeHtml(st.pricing_plan_name || '(unknown)')} · Rate: ${escapeHtml(String(st.rate_per_hour ?? '(unknown)'))} / hr</div>
+            </div>
+            <div class="row">
+              ${stationBadge}
+              ${st.is_active ? '' : '<span class="badge maintenance">inactive</span>'}
+            </div>
+          </div>
+
+          <div>
+            ${session ? `
+              <div class="row" style="justify-content: space-between;">
+                <div class="row">
+                  <span class="muted">Session</span>
+                  <span class="kbd">#${session.id}</span>
+                  ${sessionBadge}
+                </div>
+                <div class="muted" data-expected-end="${session.expected_end_time || ''}">${remaining ? `Remaining: ${remaining}` : ''}</div>
+              </div>
+              <div class="muted" style="margin-top:6px;">
+                Customer: ${session.customer_name ? escapeHtml(session.customer_name) : 'Walk-in'}
+              </div>
+            ` : `
+              <div class="muted">No open session.</div>
+            `}
+          </div>
+          ${deviceStrip}
+        `;
+
+        const btnStart = document.createElement('button');
+        btnStart.type = 'button';
+        btnStart.className = 'btn primary';
+        btnStart.textContent = 'Start';
+        btnStart.disabled = isLoading || !!session;
+        btnStart.onclick = async (e) => {
+          const durationRaw = prompt('Duration minutes:', '60') || '';
+          const duration = validatePositiveInt(durationRaw);
+          if (!duration) return showMessage('error', 'Please enter a valid positive duration in minutes.');
+          const customer = (prompt('Customer name (optional):', '') || '').trim();
+          try {
+            await disableWhile(e.currentTarget, (async () => {
+              const resp = await apiPost('/api/sessions/start/', {
+                station_id: st.id,
+                duration_minutes: duration,
+                customer_name: customer
+              });
+              showMessage('success', resp.message || 'Session started.');
+              await loadData();
+            })());
+          } catch (err) {
+            showMessage('error', formatError(err));
+          }
+        };
+
+        const btnPause = document.createElement('button');
+        btnPause.type = 'button';
+        btnPause.className = 'btn';
+        btnPause.textContent = 'Pause';
+        btnPause.disabled = isLoading || !session;
+        btnPause.onclick = async (e) => {
+          if (!session) return showMessage('error', 'No session for this station.');
+          try {
+            await disableWhile(e.currentTarget, (async () => {
+              const resp = await apiPost('/api/sessions/pause/', { session_id: session.id });
+              showMessage('success', resp.message || 'Session paused.');
+              await loadData();
+            })());
+          } catch (err) {
+            showMessage('error', formatError(err));
+          }
+        };
+
+        const btnResume = document.createElement('button');
+        btnResume.type = 'button';
+        btnResume.className = 'btn';
+        btnResume.textContent = 'Resume';
+        btnResume.disabled = isLoading || !session;
+        btnResume.onclick = async (e) => {
+          if (!session) return showMessage('error', 'No session for this station.');
+          try {
+            await disableWhile(e.currentTarget, (async () => {
+              const resp = await apiPost('/api/sessions/resume/', { session_id: session.id });
+              showMessage('success', resp.message || 'Session resumed.');
+              await loadData();
+            })());
+          } catch (err) {
+            showMessage('error', formatError(err));
+          }
+        };
+
+        const btnEnd = document.createElement('button');
+        btnEnd.type = 'button';
+        btnEnd.className = 'btn danger';
+        btnEnd.textContent = 'End';
+        btnEnd.disabled = isLoading || !session;
+        btnEnd.onclick = async (e) => {
+          if (!session) return showMessage('error', 'No session for this station.');
+          if (!confirm("End this session?")) return;
+          try {
+            await disableWhile(e.currentTarget, (async () => {
+              const resp = await apiPost('/api/sessions/end/', { session_id: session.id });
+              showMessage('success', resp.message || 'Session ended.');
+              if (resp.payment) {
+                showMessage(
+                  'success',
+                  `Payment due: ${resp.payment.amount_due}, paid: ${resp.payment.amount_paid}, status: ${resp.payment.payment_status}`
+                );
+              }
+              await loadData();
+            })());
+          } catch (err) {
+            showMessage('error', formatError(err));
+          }
+        };
+
+        const btnExtend = document.createElement('button');
+        btnExtend.type = 'button';
+        btnExtend.className = 'btn';
+        btnExtend.textContent = 'Extend';
+        btnExtend.disabled = isLoading || !session;
+        btnExtend.onclick = async (e) => {
+          if (!session) return showMessage('error', 'No session for this station.');
+          const addRaw = prompt('Additional minutes:', '15') || '';
+          const add = validatePositiveInt(addRaw);
+          if (!add) return showMessage('error', 'Please enter a valid positive number of minutes to extend.');
+          try {
+            await disableWhile(e.currentTarget, (async () => {
+              const resp = await apiPost('/api/sessions/extend/', { session_id: session.id, additional_minutes: add });
+              showMessage('success', resp.message || 'Session extended.');
+              await loadData();
+            })());
+          } catch (err) {
+            showMessage('error', formatError(err));
+          }
+        };
+
+        const group = document.createElement('div');
+        group.className = 'btn-group';
+        group.appendChild(btnStart);
+        group.appendChild(btnPause);
+        group.appendChild(btnResume);
+        group.appendChild(btnExtend);
+        group.appendChild(btnEnd);
+        div.appendChild(group);
+
+        root.appendChild(div);
+      }
+    }
+
+    function renderStats(stations, openSessions) {
+      const totalStations = (stations || []).length;
+      const sessions = ((openSessions && openSessions.sessions) || []);
+      const activeSessions = sessions.filter(s => s.status === 'active').length;
+      const pausedSessions = sessions.filter(s => s.status === 'paused').length;
+      const availableStations = (stations || []).filter(s => s.status === 'available').length;
+
+      let devicesOnline = 0;
+      let devicesOffline = 0;
+      let devicesFault = 0;
+      for (const st of (stations || [])) {
+        const d = st.device;
+        if (!d) continue;
+        if (d.status === 'online') devicesOnline += 1;
+        else if (d.status === 'offline') devicesOffline += 1;
+        else if (d.status === 'fault') devicesFault += 1;
+      }
+
+      document.getElementById('statTotalStations').textContent = String(totalStations);
+      document.getElementById('statActiveSessions').textContent = String(activeSessions);
+      document.getElementById('statPausedSessions').textContent = String(pausedSessions);
+      document.getElementById('statAvailableStations').textContent = String(availableStations);
+      document.getElementById('statDevicesOnline').textContent = String(devicesOnline);
+      document.getElementById('statDevicesOffline').textContent = String(devicesOffline);
+      document.getElementById('statDevicesFault').textContent = String(devicesFault);
+    }
+
+    async function loadData() {
+      try {
+        setLoading(true);
+        const loadingEl = document.getElementById('loadingState');
+        if (loadingEl) {
+          loadingEl.style.display = 'block';
+          loadingEl.textContent = 'Loading stations…';
+        }
+        const [stations, openSessions] = await Promise.all([
+          apiGet('/api/stations/'),
+          apiGet('/api/sessions/open/'),
+        ]);
+
+        sessionsByStationId.clear();
+        for (const s of ((openSessions && openSessions.sessions) || [])) {
+          sessionsByStationId.set(s.station_id, s);
+        }
+
+        lastStations = stations || [];
+        renderStats(stations, openSessions);
+        // Enable controls before rendering cards
+        setLoading(false);
+        renderStations(stations);
+        updateCountdowns();
+        if (!hasLoadedOnce) {
+          const sessionCount = ((openSessions && openSessions.sessions) || []).length;
+          const withDevice = lastStations.filter(s => s.device).length;
+          showMessage('success', `Loaded ${lastStations.length} stations, ${sessionCount} open sessions, ${withDevice} with controllers.`);
+          hasLoadedOnce = true;
+        }
+      } catch (err) {
+        showMessage('error', 'Failed to load data: ' + formatError(err));
+      } finally {
+        setLoading(false);
+        const loadingEl = document.getElementById('loadingState');
+        if (loadingEl) loadingEl.style.display = 'none';
+      }
+    }
+
+    document.getElementById('refreshBtn').addEventListener('click', loadData);
+    // Ensure initial load runs after DOM is ready
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', loadData);
+    } else {
+      loadData();
+    }
+    setInterval(loadData, 12000);
+
+    // Live 1-second countdown without re-calling APIs
+    countdownTimer = setInterval(updateCountdowns, 1000);
+
+    // If we never render anything, surface a clear hint
+    setTimeout(() => {
+      const root = document.getElementById('stations');
+      const hasCards = root && root.querySelector && root.querySelector('.card');
+      if (!hasCards) {
+        showMessage('error', 'Dashboard is still loading. If this persists, open /api/stations/ in a new tab to verify the API is reachable from your browser.');
+      }
+    }, 4000);
+  </script>
+</body>
+</html>

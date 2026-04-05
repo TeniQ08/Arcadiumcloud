@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Arcadium Login</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f3f4f6; margin: 0; }
+    .card { max-width: 420px; margin: 8vh auto; background: #fff; border-radius: 10px; padding: 24px; box-shadow: 0 8px 25px rgba(0,0,0,.08); }
+    h1 { margin-top: 0; font-size: 22px; }
+    label { display: block; margin-top: 12px; font-weight: 600; }
+    input { width: 100%; box-sizing: border-box; padding: 10px; margin-top: 6px; border: 1px solid #d1d5db; border-radius: 6px; }
+    button { margin-top: 16px; width: 100%; padding: 10px; border: 0; border-radius: 6px; background: #111827; color: #fff; cursor: pointer; }
+    .errorlist { color: #991b1b; padding-left: 18px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Arcadium Staff Login</h1>
+    <form method="post">
+      {% csrf_token %}
+      {{ form.non_field_errors }}
+      <label for="id_username">Username</label>
+      {{ form.username }}
+      <label for="id_password">Password</label>
+      {{ form.password }}
+      <button type="submit">Sign in</button>
+      <input type="hidden" name="next" value="{{ next }}">
+    </form>
+  </div>
+</body>
+</html>
