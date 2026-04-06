@@ -7,6 +7,7 @@ from django.views.decorators.http import require_POST
 
 from accounts.models import User
 from devices.models import StationDevice
+from game_sessions.compatibility import open_sessions_queryset
 from game_sessions.models import GameSession
 from game_sessions.services import (
     end_session,
@@ -31,11 +32,7 @@ def _require_staff_role(request):
 
 
 def _get_open_sessions_by_station():
-    open_sessions = (
-        GameSession.objects.exclude(status=GameSession.Status.COMPLETED)
-        .select_related("station")
-        .order_by("-start_time")
-    )
+    open_sessions = open_sessions_queryset()
     by_station = {}
     for session in open_sessions:
         if session.station_id not in by_station:

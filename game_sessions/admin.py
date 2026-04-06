@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import GameSession, SessionExtension, SessionPause
+from .models import GameSession, SessionEvent, SessionExtension, SessionPause
 
 
 class SessionPauseInline(admin.TabularInline):
@@ -13,11 +13,32 @@ class SessionExtensionInline(admin.TabularInline):
     extra = 0
 
 
+class SessionEventInline(admin.TabularInline):
+    model = SessionEvent
+    extra = 0
+    readonly_fields = ("event_type", "message", "metadata", "created_at")
+    can_delete = False
+
+
 @admin.register(GameSession)
 class GameSessionAdmin(admin.ModelAdmin):
-    list_display = ("station", "status", "start_time", "expected_end_time", "rate_per_hour")
-    list_filter = ("status", "station")
-    inlines = [SessionPauseInline, SessionExtensionInline]
+    list_display = (
+        "station",
+        "billing_kind",
+        "status",
+        "start_time",
+        "expected_end_time",
+        "rate_per_hour",
+        "created_at",
+    )
+    list_filter = ("billing_kind", "status", "station")
+    inlines = [SessionPauseInline, SessionExtensionInline, SessionEventInline]
+
+
+@admin.register(SessionEvent)
+class SessionEventAdmin(admin.ModelAdmin):
+    list_display = ("session", "event_type", "created_at")
+    list_filter = ("event_type",)
 
 
 @admin.register(SessionPause)

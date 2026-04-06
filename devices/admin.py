@@ -23,6 +23,6 @@ class StationDeviceAdmin(admin.ModelAdmin):
 
 @admin.register(DeviceCommand)
 class DeviceCommandAdmin(admin.ModelAdmin):
-    list_display = ("device", "command", "status", "created_at", "sent_at", "acknowledged_at")
+    list_display = ("device", "session", "command", "status", "created_at", "sent_at", "acknowledged_at")
     list_filter = ("status", "command")
-    search_fields = ("device__device_id", "device__station__name")
+    search_fields = ("device__device_id", "device__station__name", "session__id")

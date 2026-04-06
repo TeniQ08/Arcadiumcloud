@@ -49,11 +49,23 @@ class DeviceCommand(models.Model):
         FAILED = "failed", "Failed"
 
     device = models.ForeignKey(StationDevice, on_delete=models.CASCADE, related_name="commands")
+    session = models.ForeignKey(
+        "game_sessions.GameSession",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="device_commands",
+    )
     command = models.CharField(max_length=32, choices=CommandType.choices)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    payload = models.JSONField(default=dict, blank=True)
+    response_payload = models.JSONField(default=dict, blank=True)
+    error_message = models.TextField(blank=True, default="")
+    requested_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     sent_at = models.DateTimeField(null=True, blank=True)
     acknowledged_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
     result_text = models.TextField(blank=True, default="")
 
     class Meta:
@@ -64,6 +76,7 @@ class DeviceCommand(models.Model):
             models.Index(fields=["created_at"], name="devices_dev_created_idx"),
             models.Index(fields=["device", "status"], name="devices_dev_dev_stat_idx"),
             models.Index(fields=["device", "status", "created_at"], name="devices_dev_queue_idx"),
+            models.Index(fields=["session"], name="devices_dev_session_idx"),
         ]
 
     def __str__(self) -> str:

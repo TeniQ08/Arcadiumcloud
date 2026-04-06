@@ -18,6 +18,7 @@ from .services import (
     mark_offline_devices,
     reset_stale_sent_commands,
 )
+from game_sessions.prepaid_services import reconcile_prepaid_device_command
 
 
 class DeviceHeartbeatAPIView(APIView):
@@ -136,7 +137,10 @@ class DeviceCommandResultAPIView(APIView):
         cmd.status = acknowledge_command_status(data["status"])
         cmd.acknowledged_at = timezone.now()
         cmd.result_text = data.get("result_text", "")
-        cmd.save(update_fields=["status", "acknowledged_at", "result_text"])
+        cmd.completed_at = timezone.now()
+        cmd.save(update_fields=["status", "acknowledged_at", "result_text", "completed_at"])
+
+        reconcile_prepaid_device_command(cmd)
 
         return Response(
             {

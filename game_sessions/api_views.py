@@ -6,23 +6,23 @@ from rest_framework.views import APIView
 
 from stations.models import Station
 
+from .compatibility import dashboard_session_payload, open_sessions_queryset
 from .models import GameSession
-from .serializers import ExtendSessionSerializer, SessionActionSerializer, StartSessionSerializer
-from .services import end_session, extend_session, pause_session, resume_session, start_session
-
-
-def _session_payload(session: GameSession) -> dict:
-    return {
-        "id": session.id,
-        "station_id": session.station_id,
-        "opened_by_id": session.opened_by_id,
-        "customer_name": session.customer_name,
-        "start_time": session.start_time.isoformat(),
-        "expected_end_time": session.expected_end_time.isoformat(),
-        "actual_end_time": session.actual_end_time.isoformat() if session.actual_end_time else None,
-        "status": session.status,
-        "rate_per_hour": str(session.rate_per_hour),
-    }
+from .prepaid_services import create_session_and_request_payment
+from .serializers import (
+    CreatePrepaidSessionSerializer,
+    ExtendSessionSerializer,
+    SessionActionSerializer,
+    StartSessionSerializer,
+)
+from .services import (
+    end_session,
+    extend_session,
+    mark_expired_sessions,
+    pause_session,
+    resume_session,
+    start_session,
+)
 
 
 def _validation_error_response(exc: ValidationError) -> Response:
@@ -42,16 +42,13 @@ class OpenSessionsAPIView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        qs = (
-            GameSession.objects.exclude(status=GameSession.Status.COMPLETED)
-            .select_related("station")
-            .order_by("-start_time")
-        )
+        mark_expired_sessions()
+        qs = open_sessions_queryset()
         return Response(
             {
                 "sessions": [
                     {
-                        **_session_payload(s),
+                        **dashboard_session_payload(s),
                         "station_name": s.station.name,
                     }
                     for s in qs
@@ -81,7 +78,45 @@ class StartSessionAPIView(APIView):
         except Station.DoesNotExist:
             return Response({"detail": "Station not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(
-            {"message": "Session started.", "session": _session_payload(session)},
+            {"message": "Session started.", "session": dashboard_session_payload(session)},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class CreatePrepaidSessionAPIView(APIView):
+    """POST /api/sessions/create-and-request-payment/ — additive prepaid STK entrypoint."""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = CreatePrepaidSessionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            session, payment = create_session_and_request_payment(
+                station_id=data["station_id"],
+                pricing_plan_id=data["pricing_plan_id"],
+                customer_phone=data["customer_phone"],
+                game_name=data.get("game_name") or "",
+                notes=data.get("notes") or "",
+                opened_by=request.user if request.user.is_authenticated else None,
+            )
+        except ValidationError as exc:
+            return _validation_error_response(exc)
+        except Station.DoesNotExist:
+            return Response({"detail": "Station not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(
+            {
+                "message": "Prepaid session created; STK push initiated (stub).",
+                "session": dashboard_session_payload(session),
+                "payment": {
+                    "id": payment.id,
+                    "status": payment.status,
+                    "amount_due": str(payment.amount_due),
+                    "checkout_request_id": payment.checkout_request_id,
+                },
+            },
             status=status.HTTP_201_CREATED,
         )
 
@@ -100,7 +135,7 @@ class PauseSessionAPIView(APIView):
             return _validation_error_response(exc)
         except GameSession.DoesNotExist:
             return Response({"detail": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
-        return Response({"message": "Session paused.", "session": _session_payload(session)}, status=status.HTTP_200_OK)
+        return Response({"message": "Session paused.", "session": dashboard_session_payload(session)}, status=status.HTTP_200_OK)
 
 
 class ResumeSessionAPIView(APIView):
@@ -118,7 +153,7 @@ class ResumeSessionAPIView(APIView):
         except GameSession.DoesNotExist:
             return Response({"detail": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(
-            {"message": "Session resumed.", "session": _session_payload(session)},
+            {"message": "Session resumed.", "session": dashboard_session_payload(session)},
             status=status.HTTP_200_OK,
         )
 
@@ -141,7 +176,7 @@ class EndSessionAPIView(APIView):
         return Response(
             {
                 "message": "Session ended.",
-                "session": _session_payload(session),
+                "session": dashboard_session_payload(session),
                 "payment": {
                     "amount_due": str(payment.amount_due),
                     "amount_paid": str(payment.amount_paid),
@@ -171,6 +206,6 @@ class ExtendSessionAPIView(APIView):
         except GameSession.DoesNotExist:
             return Response({"detail": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(
-            {"message": "Session extended.", "session": _session_payload(session)},
+            {"message": "Session extended.", "session": dashboard_session_payload(session)},
             status=status.HTTP_200_OK,
         )

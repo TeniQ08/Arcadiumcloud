@@ -17,4 +17,6 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
+            # Server-side script must run `python manage.py migrate` (or equivalent) before
+            # restarting Gunicorn so schema changes from this repo are applied on deploy.
             /usr/local/bin/arcadium-deploy.sh
