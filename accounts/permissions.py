@@ -39,10 +39,20 @@ def is_cashier_or_admin(user: AbstractBaseUser | AnonymousUser) -> bool:
     )
 
 
+def is_staff_role(user: AbstractBaseUser | AnonymousUser) -> bool:
+    """Admin, cashier, or attendant (Arcadium control panel roles)."""
+    return _is_authenticated_staff(user) and user.role in (
+        User.Role.ADMIN,
+        User.Role.CASHIER,
+        User.Role.ATTENDANT,
+    )
+
+
 try:
-    from rest_framework.permissions import BasePermission
+    from rest_framework.permissions import BasePermission, IsAuthenticated
 except ImportError:  # pragma: no cover - optional dependency
     BasePermission = object  # type: ignore[misc, assignment]
+    IsAuthenticated = object  # type: ignore[misc, assignment]
 
 
 class IsAdmin(BasePermission):
@@ -63,3 +73,12 @@ class IsAttendant(BasePermission):
 class IsCashierOrAdmin(BasePermission):
     def has_permission(self, request, view) -> bool:
         return is_cashier_or_admin(request.user)
+
+
+class IsStaffRole(BasePermission):
+    def has_permission(self, request, view) -> bool:
+        return is_staff_role(request.user)
+
+
+# Staff JSON API: authenticated user with admin, cashier, or attendant role.
+STAFF_API_PERMISSIONS = [IsAuthenticated, IsStaffRole]

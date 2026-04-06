@@ -14,5 +14,6 @@ urlpatterns = [
     path("sessions/<int:session_id>/extend/", views.extend_session_action, name="extend_session"),
 
     # API
+    path("api/stations/<int:pk>/", views.StationDetailAPIView.as_view(), name="api_station_detail"),
     path("api/stations/", views.StationListAPIView.as_view(), name="api_station_list"),
 ]

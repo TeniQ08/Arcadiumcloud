@@ -25,6 +25,32 @@ class CommandResultSerializer(DeviceAuthSerializer):
     result_text = serializers.CharField(required=False, allow_blank=True, default="")
 
 
+class DeviceCommandListSerializer(serializers.ModelSerializer):
+    device_id = serializers.CharField(source="device.device_id", read_only=True)
+    station_id = serializers.IntegerField(source="device.station_id", read_only=True)
+
+    class Meta:
+        model = DeviceCommand
+        fields = [
+            "id",
+            "device_id",
+            "station_id",
+            "session",
+            "command",
+            "status",
+            "payload",
+            "response_payload",
+            "error_message",
+            "requested_at",
+            "created_at",
+            "sent_at",
+            "acknowledged_at",
+            "completed_at",
+            "result_text",
+        ]
+        read_only_fields = fields
+
+
 def acknowledge_command_status(raw: str) -> str:
     """Map incoming status string to DeviceCommand.Status value."""
     v = (raw or "").lower()

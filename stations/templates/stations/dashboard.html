@@ -198,6 +198,10 @@
       border-color: rgba(239,68,68,.32);
       box-shadow: var(--shadow), 0 0 0 1px rgba(239,68,68,.12), 0 0 24px rgba(239,68,68,.08);
     }
+    .card.accent-reserved{
+      border-color: rgba(168,85,247,.32);
+      box-shadow: var(--shadow), 0 0 0 1px rgba(168,85,247,.14), 0 0 24px rgba(168,85,247,.08);
+    }
 
     .card-header{
       display:flex;
@@ -233,6 +237,8 @@
     .badge.device-offline{ border-color: rgba(148,163,184,.45); color: #e2e8f0; }
     .badge.device-fault{ border-color: rgba(239,68,68,.50); color: #fecaca; }
     .badge.device-none{ border-color: rgba(148,163,184,.35); color: #cbd5e1; }
+    .badge.reserved{ border-color: rgba(168,85,247,.50); color: #e9d5ff; }
+    .badge.st-offline{ border-color: rgba(100,116,139,.50); color: #cbd5e1; }
 
     .device-strip{
       margin-top: 8px;
@@ -273,6 +279,55 @@
       padding: 2px 6px;
       border-radius: 8px;
     }
+
+    .modal-backdrop{
+      display:none;
+      position:fixed;
+      inset:0;
+      z-index:100;
+      background: rgba(2,6,23,.72);
+      align-items:center;
+      justify-content:center;
+      padding: 16px;
+    }
+    .modal-backdrop.open{ display:flex; }
+    .modal-panel{
+      width:100%;
+      max-width:420px;
+      background: rgba(17,28,51,.98);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: var(--shadow);
+    }
+    .modal-panel h3{ margin:0 0 12px 0; font-size:15px; font-weight:800; }
+    .modal-panel label{
+      display:block;
+      font-size:11px;
+      color: var(--muted);
+      margin-top:10px;
+      margin-bottom:4px;
+      font-weight:700;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .modal-panel input, .modal-panel select{
+      width:100%;
+      padding:8px 10px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      background: rgba(2,6,23,.5);
+      color: var(--text);
+      font-size: 14px;
+    }
+    .modal-actions{
+      display:flex;
+      gap:10px;
+      justify-content:flex-end;
+      margin-top:16px;
+      flex-wrap:wrap;
+    }
+    .session-kind{ font-size:11px; color: var(--muted); margin-top:4px; }
   </style>
 </head>
 <body>
@@ -314,12 +369,62 @@
     </section>
   </main>
 
+  <div id="prepaidModal" class="modal-backdrop" aria-hidden="true">
+    <div class="modal-panel" role="dialog" aria-labelledby="prepaidModalTitle">
+      <h3 id="prepaidModalTitle">Start prepaid session (STK)</h3>
+      <label for="prepaidPlanSelect">Package</label>
+      <select id="prepaidPlanSelect"></select>
+      <label for="prepaidPhone">Customer phone (M-Pesa)</label>
+      <input id="prepaidPhone" type="tel" autocomplete="tel" placeholder="07… or 2547…" />
+      <label for="prepaidGame">Game (optional)</label>
+      <input id="prepaidGame" type="text" placeholder="e.g. FIFA" />
+      <label for="prepaidNotes">Notes (optional)</label>
+      <input id="prepaidNotes" type="text" placeholder="" />
+      <input type="hidden" id="prepaidStationId" value="" />
+      <div class="modal-actions">
+        <button type="button" id="prepaidCancel" class="btn">Cancel</button>
+        <button type="button" id="prepaidSubmit" class="btn primary">Request STK payment</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     const sessionsByStationId = new Map();
     let isLoading = false;
     let lastStations = [];
     let countdownTimer = null;
     let hasLoadedOnce = false;
+    let prepaidPlans = [];
+
+    const SESSION_RAW_LABELS = {
+      pending_payment: 'Pending payment',
+      payment_failed: 'Payment failed',
+      paid: 'Paid',
+      activation_pending: 'Activation pending',
+      active: 'Active',
+      expired: 'Expired',
+      completed: 'Completed',
+      cancelled: 'Cancelled',
+      activation_failed: 'Activation failed',
+    };
+    const STATION_RAW_LABELS = {
+      available: 'Available',
+      reserved: 'Reserved',
+      in_use: 'In use',
+      maintenance: 'Maintenance',
+      offline: 'Offline',
+    };
+
+    function stationRaw(st) {
+      return st.status_raw != null ? st.status_raw : st.status;
+    }
+    function labelStationRaw(raw) {
+      return STATION_RAW_LABELS[raw] || String(raw || '');
+    }
+    function labelSessionRaw(raw) {
+      if (!raw) return '';
+      return SESSION_RAW_LABELS[raw] || String(raw).replace(/_/g, ' ');
+    }
 
     function setLoading(loading) {
       isLoading = loading;
@@ -365,10 +470,12 @@
       } catch (e) { /* ignore */ }
     });
 
-    function badgeClassForStationStatus(status) {
-      if (status === 'available') return 'available';
-      if (status === 'in_use') return 'in_use';
-      if (status === 'maintenance') return 'maintenance';
+    function badgeClassForStationRaw(raw) {
+      if (raw === 'available') return 'available';
+      if (raw === 'reserved') return 'reserved';
+      if (raw === 'in_use') return 'in_use';
+      if (raw === 'maintenance') return 'maintenance';
+      if (raw === 'offline') return 'st-offline';
       return 'maintenance';
     }
 
@@ -377,6 +484,27 @@
       if (status === 'paused') return 'paused';
       if (status === 'expired') return 'expired';
       return 'expired';
+    }
+
+    function badgeClassForSessionDetail(session) {
+      if (!session) return 'expired';
+      if (session.billing_kind === 'prepaid_stk' && session.session_status_raw) {
+        const r = session.session_status_raw;
+        if (r === 'active') return 'active';
+        if (r === 'expired') return 'expired';
+        if (r === 'pending_payment' || r === 'paid' || r === 'activation_pending') return 'paused';
+        if (r === 'payment_failed' || r === 'activation_failed') return 'expired';
+        return 'paused';
+      }
+      return badgeClassForSessionStatus(session.status);
+    }
+
+    function sessionStatusText(session) {
+      if (!session) return '';
+      if (session.billing_kind === 'prepaid_stk' && session.session_status_raw) {
+        return labelSessionRaw(session.session_status_raw);
+      }
+      return session.status;
     }
 
     function badgeClassForDeviceStatus(status) {
@@ -448,8 +576,18 @@
       });
     }
 
+    function getCookie(name) {
+      const value = '; ' + document.cookie;
+      const parts = value.split('; ' + name + '=');
+      if (parts.length === 2) return parts.pop().split(';').shift();
+      return null;
+    }
+
     async function apiGet(path) {
-      const res = await fetch(path, { headers: { 'Accept': 'application/json' }});
+      const res = await fetch(path, {
+        credentials: 'same-origin',
+        headers: { 'Accept': 'application/json' },
+      });
       const text = await res.text();
       let data = null;
       try { data = text ? JSON.parse(text) : null; } catch (e) { /* ignore */ }
@@ -460,10 +598,14 @@
     }
 
     async function apiPost(path, body) {
+      const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+      const csrf = getCookie('csrftoken');
+      if (csrf) headers['X-CSRFToken'] = csrf;
       const res = await fetch(path, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify(body || {})
+        credentials: 'same-origin',
+        headers,
+        body: JSON.stringify(body || {}),
       });
       const text = await res.text();
       let data = null;
@@ -472,6 +614,47 @@
         throw data || { detail: [text || ('HTTP ' + res.status)] };
       }
       return data;
+    }
+
+    function populatePrepaidPlanSelect() {
+      const sel = document.getElementById('prepaidPlanSelect');
+      if (!sel) return;
+      sel.innerHTML = '';
+      for (const p of prepaidPlans) {
+        const opt = document.createElement('option');
+        opt.value = String(p.id);
+        const dur = p.package_duration_minutes != null ? p.package_duration_minutes + ' min' : '';
+        const price = p.package_price != null ? p.package_price + ' KSh' : '';
+        opt.textContent = `${p.name} (${dur} · ${price})`;
+        sel.appendChild(opt);
+      }
+      sel.onchange = function() {
+        const pl = prepaidPlans.find(x => String(x.id) === sel.value);
+        if (pl && /fifa/i.test(pl.name)) document.getElementById('prepaidGame').value = 'FIFA';
+      };
+    }
+
+    function openPrepaidModal(stationId) {
+      document.getElementById('prepaidStationId').value = String(stationId);
+      document.getElementById('prepaidPhone').value = '';
+      document.getElementById('prepaidNotes').value = '';
+      populatePrepaidPlanSelect();
+      const gameEl = document.getElementById('prepaidGame');
+      if (prepaidPlans.length) {
+        const pl = prepaidPlans[0];
+        gameEl.value = (pl && /fifa/i.test(pl.name)) ? 'FIFA' : '';
+      } else {
+        gameEl.value = '';
+      }
+      const m = document.getElementById('prepaidModal');
+      m.classList.add('open');
+      m.setAttribute('aria-hidden', 'false');
+    }
+
+    function closePrepaidModal() {
+      const m = document.getElementById('prepaidModal');
+      m.classList.remove('open');
+      m.setAttribute('aria-hidden', 'true');
     }
 
     function renderStations(stations) {
@@ -494,19 +677,23 @@
         div.className = 'card';
 
         const session = sessionsByStationId.get(st.id) || null;
-        const remaining = session ? formatRemaining(session.expected_end_time) : '';
+        const raw = stationRaw(st);
+        const sessEndIso = session ? (session.expires_at || session.expected_end_time || '') : '';
+        const remaining = session ? formatRemaining(sessEndIso) : '';
+        const isPrepaid = session && session.billing_kind === 'prepaid_stk';
 
-        // Accent priority: maintenance > device fault > session status > available-with-no-session > other
-        if (st.status === 'maintenance') div.classList.add('accent-maintenance');
+        if (raw === 'maintenance' || raw === 'offline') div.classList.add('accent-maintenance');
         else if (st.device && st.device.status === 'fault') div.classList.add('accent-device-fault');
+        else if (raw === 'reserved') div.classList.add('accent-reserved');
+        else if (session && session.billing_kind === 'prepaid_stk' && session.session_status_raw === 'active') div.classList.add('accent-active');
         else if (session && session.status === 'active') div.classList.add('accent-active');
         else if (session && session.status === 'paused') div.classList.add('accent-paused');
         else if (session && session.status === 'expired') div.classList.add('accent-expired');
-        else if (!session && st.status === 'available') div.classList.add('accent-available');
-        else if (!session && st.status === 'in_use') div.classList.add('accent-active');
+        else if (!session && raw === 'available') div.classList.add('accent-available');
+        else if (!session && raw === 'in_use') div.classList.add('accent-active');
 
-        const stationBadge = `<span class="badge ${badgeClassForStationStatus(st.status)}">${st.status}</span>`;
-        const sessionBadge = session ? `<span class="badge ${badgeClassForSessionStatus(session.status)}">${session.status}</span>` : '';
+        const stationBadge = `<span class="badge ${badgeClassForStationRaw(raw)}">${escapeHtml(labelStationRaw(raw))}</span>`;
+        const sessionBadge = session ? `<span class="badge ${badgeClassForSessionDetail(session)}">${escapeHtml(sessionStatusText(session))}</span>` : '';
 
         const dev = st.device;
         const deviceStrip = dev
@@ -547,10 +734,12 @@
                   <span class="kbd">#${session.id}</span>
                   ${sessionBadge}
                 </div>
-                <div class="muted" data-expected-end="${session.expected_end_time || ''}">${remaining ? `Remaining: ${remaining}` : ''}</div>
+                <div class="muted" data-expected-end="${sessEndIso || ''}">${remaining ? `Remaining: ${remaining}` : ''}</div>
               </div>
+              ${isPrepaid ? `<div class="session-kind">Prepaid (STK)</div>` : ''}
               <div class="muted" style="margin-top:6px;">
                 Customer: ${session.customer_name ? escapeHtml(session.customer_name) : 'Walk-in'}
+                ${session.game_name ? ` · Game: ${escapeHtml(session.game_name)}` : ''}
               </div>
             ` : `
               <div class="muted">No open session.</div>
@@ -584,11 +773,18 @@
           }
         };
 
+        const btnPrepaid = document.createElement('button');
+        btnPrepaid.type = 'button';
+        btnPrepaid.className = 'btn';
+        btnPrepaid.textContent = 'Prepaid (STK)';
+        btnPrepaid.disabled = isLoading || !!session || raw !== 'available';
+        btnPrepaid.onclick = () => openPrepaidModal(st.id);
+
         const btnPause = document.createElement('button');
         btnPause.type = 'button';
         btnPause.className = 'btn';
         btnPause.textContent = 'Pause';
-        btnPause.disabled = isLoading || !session;
+        btnPause.disabled = isLoading || !session || isPrepaid;
         btnPause.onclick = async (e) => {
           if (!session) return showMessage('error', 'No session for this station.');
           try {
@@ -606,7 +802,7 @@
         btnResume.type = 'button';
         btnResume.className = 'btn';
         btnResume.textContent = 'Resume';
-        btnResume.disabled = isLoading || !session;
+        btnResume.disabled = isLoading || !session || isPrepaid;
         btnResume.onclick = async (e) => {
           if (!session) return showMessage('error', 'No session for this station.');
           try {
@@ -624,7 +820,7 @@
         btnEnd.type = 'button';
         btnEnd.className = 'btn danger';
         btnEnd.textContent = 'End';
-        btnEnd.disabled = isLoading || !session;
+        btnEnd.disabled = isLoading || !session || isPrepaid;
         btnEnd.onclick = async (e) => {
           if (!session) return showMessage('error', 'No session for this station.');
           if (!confirm("End this session?")) return;
@@ -649,7 +845,7 @@
         btnExtend.type = 'button';
         btnExtend.className = 'btn';
         btnExtend.textContent = 'Extend';
-        btnExtend.disabled = isLoading || !session;
+        btnExtend.disabled = isLoading || !session || isPrepaid;
         btnExtend.onclick = async (e) => {
           if (!session) return showMessage('error', 'No session for this station.');
           const addRaw = prompt('Additional minutes:', '15') || '';
@@ -669,6 +865,7 @@
         const group = document.createElement('div');
         group.className = 'btn-group';
         group.appendChild(btnStart);
+        group.appendChild(btnPrepaid);
         group.appendChild(btnPause);
         group.appendChild(btnResume);
         group.appendChild(btnExtend);
@@ -679,12 +876,25 @@
       }
     }
 
-    function renderStats(stations, openSessions) {
+    function renderStats(stations, openSessions, summary) {
+      if (summary && summary.stations && summary.sessions && summary.devices) {
+        document.getElementById('statTotalStations').textContent = String(summary.stations.total);
+        const active =
+          (summary.sessions.legacy_active || 0) + (summary.sessions.prepaid_active || 0);
+        document.getElementById('statActiveSessions').textContent = String(active);
+        document.getElementById('statPausedSessions').textContent = String(summary.sessions.legacy_paused || 0);
+        document.getElementById('statAvailableStations').textContent = String(summary.stations.available || 0);
+        document.getElementById('statDevicesOnline').textContent = String(summary.devices.online || 0);
+        document.getElementById('statDevicesOffline').textContent = String(summary.devices.offline || 0);
+        document.getElementById('statDevicesFault').textContent = String(summary.devices.fault || 0);
+        return;
+      }
+
       const totalStations = (stations || []).length;
       const sessions = ((openSessions && openSessions.sessions) || []);
       const activeSessions = sessions.filter(s => s.status === 'active').length;
       const pausedSessions = sessions.filter(s => s.status === 'paused').length;
-      const availableStations = (stations || []).filter(s => s.status === 'available').length;
+      const availableStations = (stations || []).filter(s => stationRaw(s) === 'available').length;
 
       let devicesOnline = 0;
       let devicesOffline = 0;
@@ -714,10 +924,18 @@
           loadingEl.style.display = 'block';
           loadingEl.textContent = 'Loading stations…';
         }
-        const [stations, openSessions] = await Promise.all([
+        const [stations, openSessions, plans, summary] = await Promise.all([
           apiGet('/api/stations/'),
           apiGet('/api/sessions/open/'),
+          apiGet('/api/pricing-plans/').catch(() => []),
+          fetch('/api/dashboard/summary/', {
+            credentials: 'same-origin',
+            headers: { 'Accept': 'application/json' },
+          })
+            .then((r) => (r.ok ? r.json() : null))
+            .catch(() => null),
         ]);
+        prepaidPlans = Array.isArray(plans) ? plans : [];
 
         sessionsByStationId.clear();
         for (const s of ((openSessions && openSessions.sessions) || [])) {
@@ -725,7 +943,7 @@
         }
 
         lastStations = stations || [];
-        renderStats(stations, openSessions);
+        renderStats(stations, openSessions, summary);
         // Enable controls before rendering cards
         setLoading(false);
         renderStations(stations);
@@ -746,6 +964,41 @@
     }
 
     document.getElementById('refreshBtn').addEventListener('click', loadData);
+
+    document.getElementById('prepaidSubmit').addEventListener('click', async () => {
+      const stationId = parseInt(document.getElementById('prepaidStationId').value, 10);
+      const planId = parseInt(document.getElementById('prepaidPlanSelect').value, 10);
+      const phone = (document.getElementById('prepaidPhone').value || '').trim();
+      if (!phone) {
+        showMessage('error', 'Phone number is required.');
+        return;
+      }
+      if (!planId || !Number.isFinite(planId)) {
+        showMessage('error', 'Select a prepaid package. Add active prepaid plans in Admin if the list is empty.');
+        return;
+      }
+      const btn = document.getElementById('prepaidSubmit');
+      try {
+        await disableWhile(btn, (async () => {
+          await apiPost('/api/sessions/create-and-request-payment/', {
+            station_id: stationId,
+            pricing_plan_id: planId,
+            customer_phone: phone,
+            game_name: (document.getElementById('prepaidGame').value || '').trim(),
+            notes: (document.getElementById('prepaidNotes').value || '').trim(),
+          });
+          showMessage('success', 'STK request sent. Customer should receive the M-Pesa prompt.');
+          closePrepaidModal();
+          await loadData();
+        })());
+      } catch (err) {
+        showMessage('error', formatError(err));
+      }
+    });
+    document.getElementById('prepaidCancel').addEventListener('click', closePrepaidModal);
+    document.getElementById('prepaidModal').addEventListener('click', (e) => {
+      if (e.target.id === 'prepaidModal') closePrepaidModal();
+    });
     // Ensure initial load runs after DOM is ready
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', loadData);

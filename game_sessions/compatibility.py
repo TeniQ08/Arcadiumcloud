@@ -63,6 +63,10 @@ def dashboard_session_payload(session: GameSession) -> dict:
     if not customer and session.customer_phone:
         customer = session.customer_phone
 
+    expires_iso = session.expires_at.isoformat() if session.expires_at else None
+    if not expires_iso and end_display is not None:
+        expires_iso = end_display.isoformat()
+
     return {
         "id": session.id,
         "station_id": session.station_id,
@@ -70,8 +74,12 @@ def dashboard_session_payload(session: GameSession) -> dict:
         "customer_name": customer,
         "start_time": start.isoformat(),
         "expected_end_time": end_display.isoformat() if end_display else None,
+        "expires_at": expires_iso,
         "actual_end_time": session.actual_end_time.isoformat() if session.actual_end_time else None,
         "status": dashboard_session_status(session),
+        "session_status_raw": session.status,
+        "billing_kind": session.billing_kind,
+        "game_name": session.game_name or "",
         "rate_per_hour": str(rate),
     }
 

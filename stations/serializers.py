@@ -9,6 +9,7 @@ class StationSerializer(serializers.ModelSerializer):
     pricing_plan_name = serializers.CharField(source="pricing_plan.name", read_only=True)
     rate_per_hour = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
+    status_raw = serializers.SerializerMethodField()
     device = serializers.SerializerMethodField()
 
     class Meta:
@@ -17,6 +18,7 @@ class StationSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "status",
+            "status_raw",
             "pricing_plan",
             "is_active",
             "pricing_plan_name",
@@ -32,6 +34,10 @@ class StationSerializer(serializers.ModelSerializer):
             return Station.Status.IN_USE
         if obj.status == Station.Status.OFFLINE:
             return Station.Status.MAINTENANCE
+        return obj.status
+
+    def get_status_raw(self, obj) -> str:
+        """Actual DB status for UI that distinguishes reserved vs active."""
         return obj.status
 
     def get_rate_per_hour(self, obj):

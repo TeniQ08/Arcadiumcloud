@@ -1,13 +1,18 @@
+import logging
+
 from django.db import transaction
 from django.utils import timezone
-from rest_framework import status
+from rest_framework import generics, status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.permissions import STAFF_API_PERMISSIONS
+
 from .models import DeviceCommand, StationDevice
 from .serializers import (
     CommandResultSerializer,
+    DeviceCommandListSerializer,
     HeartbeatSerializer,
     NextCommandQuerySerializer,
     acknowledge_command_status,
@@ -19,6 +24,25 @@ from .services import (
     reset_stale_sent_commands,
 )
 from game_sessions.prepaid_services import reconcile_prepaid_device_command
+
+logger = logging.getLogger(__name__)
+
+
+def _log_device_auth_rejection(endpoint: str) -> None:
+    logger.warning("Device API rejected: invalid or missing credentials (endpoint=%s)", endpoint)
+
+
+class DeviceCommandListAPIView(generics.ListAPIView):
+    """GET /api/device-commands/ — recent commands (staff session required)."""
+
+    permission_classes = STAFF_API_PERMISSIONS
+    serializer_class = DeviceCommandListSerializer
+
+    def get_queryset(self):
+        return (
+            DeviceCommand.objects.select_related("device", "session")
+            .order_by("-created_at")[:300]
+        )
 
 
 class DeviceHeartbeatAPIView(APIView):
@@ -35,6 +59,7 @@ class DeviceHeartbeatAPIView(APIView):
 
         device = authenticate_device(data["device_id"], data["device_secret"])
         if device is None:
+            _log_device_auth_rejection("devices_heartbeat")
             return Response({"detail": "Invalid device credentials."}, status=status.HTTP_401_UNAUTHORIZED)
 
         device = StationDevice.objects.select_for_update().get(pk=device.pk)
@@ -73,6 +98,7 @@ class DeviceNextCommandAPIView(APIView):
 
         device = authenticate_device(data["device_id"], data["device_secret"])
         if device is None:
+            _log_device_auth_rejection("devices_next_command")
             return Response({"detail": "Invalid device credentials."}, status=status.HTTP_401_UNAUTHORIZED)
 
         mark_offline_devices()
@@ -112,6 +138,7 @@ class DeviceCommandResultAPIView(APIView):
 
         device = authenticate_device(data["device_id"], data["device_secret"])
         if device is None:
+            _log_device_auth_rejection("devices_command_result")
             return Response({"detail": "Invalid device credentials."}, status=status.HTTP_401_UNAUTHORIZED)
 
         try:

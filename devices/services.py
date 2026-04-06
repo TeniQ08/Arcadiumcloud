@@ -12,12 +12,20 @@ from .models import DeviceCommand, StationDevice
 
 
 def authenticate_device(device_id: str, device_secret: str) -> StationDevice | None:
-    """Return the device if credentials match; uses constant-time secret comparison."""
+    """
+    Return the device if credentials match; uses constant-time secret comparison.
+
+    Missing or whitespace-only id/secret fail closed (no DB hit for empty id).
+    """
+    did = (device_id or "").strip()
+    secret = (device_secret or "").strip()
+    if not did or not secret:
+        return None
     try:
-        device = StationDevice.objects.select_related("station").get(device_id=device_id)
+        device = StationDevice.objects.select_related("station").get(device_id=did)
     except StationDevice.DoesNotExist:
         return None
-    if not constant_time_compare(device.device_secret, device_secret):
+    if not constant_time_compare(device.device_secret, secret):
         return None
     return device
 

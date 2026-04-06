@@ -1,14 +1,15 @@
 from django.core.exceptions import ValidationError
 from rest_framework import status
-from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.permissions import STAFF_API_PERMISSIONS
 from stations.models import Station
 
 from .compatibility import dashboard_session_payload, open_sessions_queryset
 from .models import GameSession
-from .prepaid_services import create_session_and_request_payment
+from .prepaid_services import cancel_prepaid_session, create_session_and_request_payment
+from .summary import build_dashboard_summary
 from .serializers import (
     CreatePrepaidSessionSerializer,
     ExtendSessionSerializer,
@@ -32,14 +33,86 @@ def _validation_error_response(exc: ValidationError) -> Response:
     return Response({"detail": messages}, status=status.HTTP_400_BAD_REQUEST)
 
 
+class DashboardSummaryAPIView(APIView):
+    """GET /api/dashboard/summary/ — aggregated counts (staff session required)."""
+
+    permission_classes = STAFF_API_PERMISSIONS
+
+    def get(self, request):
+        mark_expired_sessions()
+        return Response(build_dashboard_summary(), status=status.HTTP_200_OK)
+
+
+class GameSessionListAPIView(APIView):
+    """GET /api/sessions/ — recent sessions (newest first), staff only."""
+
+    permission_classes = STAFF_API_PERMISSIONS
+
+    def get(self, request):
+        mark_expired_sessions()
+        qs = (
+            GameSession.objects.select_related("station")
+            .order_by("-created_at")[:200]
+        )
+        return Response(
+            {
+                "sessions": [
+                    {
+                        **dashboard_session_payload(s),
+                        "station_name": s.station.name,
+                    }
+                    for s in qs
+                ]
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class GameSessionDetailAPIView(APIView):
+    """GET /api/sessions/<id>/ — single session payload, staff only."""
+
+    permission_classes = STAFF_API_PERMISSIONS
+
+    def get(self, request, pk: int):
+        mark_expired_sessions()
+        try:
+            s = GameSession.objects.select_related("station").get(pk=pk)
+        except GameSession.DoesNotExist:
+            return Response({"detail": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(
+            {
+                **dashboard_session_payload(s),
+                "station_name": s.station.name,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class CancelPrepaidSessionAPIView(APIView):
+    """POST /api/sessions/<id>/cancel/ — cancel prepaid before activation completes."""
+
+    permission_classes = STAFF_API_PERMISSIONS
+
+    def post(self, request, pk: int):
+        try:
+            session = cancel_prepaid_session(pk)
+        except ValidationError as exc:
+            return _validation_error_response(exc)
+        except GameSession.DoesNotExist:
+            return Response({"detail": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(
+            {"message": "Prepaid session cancelled.", "session": dashboard_session_payload(session)},
+            status=status.HTTP_200_OK,
+        )
+
+
 class OpenSessionsAPIView(APIView):
     """
     Read-only list of open sessions (active/paused/expired), newest first.
-    MVP: no auth/filtering/pagination.
+    Staff session required (control panel).
     """
 
-    authentication_classes = []
-    permission_classes = [AllowAny]
+    permission_classes = STAFF_API_PERMISSIONS
 
     def get(self, request):
         mark_expired_sessions()
@@ -59,8 +132,7 @@ class OpenSessionsAPIView(APIView):
 
 
 class StartSessionAPIView(APIView):
-    authentication_classes = []
-    permission_classes = [AllowAny]
+    permission_classes = STAFF_API_PERMISSIONS
 
     def post(self, request):
         serializer = StartSessionSerializer(data=request.data)
@@ -86,8 +158,7 @@ class StartSessionAPIView(APIView):
 class CreatePrepaidSessionAPIView(APIView):
     """POST /api/sessions/create-and-request-payment/ — additive prepaid STK entrypoint."""
 
-    authentication_classes = []
-    permission_classes = [AllowAny]
+    permission_classes = STAFF_API_PERMISSIONS
 
     def post(self, request):
         serializer = CreatePrepaidSessionSerializer(data=request.data)
@@ -122,8 +193,7 @@ class CreatePrepaidSessionAPIView(APIView):
 
 
 class PauseSessionAPIView(APIView):
-    authentication_classes = []
-    permission_classes = [AllowAny]
+    permission_classes = STAFF_API_PERMISSIONS
 
     def post(self, request):
         serializer = SessionActionSerializer(data=request.data)
@@ -139,8 +209,7 @@ class PauseSessionAPIView(APIView):
 
 
 class ResumeSessionAPIView(APIView):
-    authentication_classes = []
-    permission_classes = [AllowAny]
+    permission_classes = STAFF_API_PERMISSIONS
 
     def post(self, request):
         serializer = SessionActionSerializer(data=request.data)
@@ -159,8 +228,7 @@ class ResumeSessionAPIView(APIView):
 
 
 class EndSessionAPIView(APIView):
-    authentication_classes = []
-    permission_classes = [AllowAny]
+    permission_classes = STAFF_API_PERMISSIONS
 
     def post(self, request):
         serializer = SessionActionSerializer(data=request.data)
@@ -188,8 +256,7 @@ class EndSessionAPIView(APIView):
 
 
 class ExtendSessionAPIView(APIView):
-    authentication_classes = []
-    permission_classes = [AllowAny]
+    permission_classes = STAFF_API_PERMISSIONS
 
     def post(self, request):
         serializer = ExtendSessionSerializer(data=request.data)

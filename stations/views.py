@@ -21,6 +21,8 @@ from stations.models import Station
 
 from rest_framework import generics
 
+from accounts.permissions import STAFF_API_PERMISSIONS
+
 from .serializers import StationSerializer
 
 
@@ -40,12 +42,10 @@ def _get_open_sessions_by_station():
     return by_station
 
 
-class StationListAPIView(generics.ListAPIView):
-    """
-    Read-only list of active stations, ordered by name.
-    MVP: no auth/filtering/pagination.
-    """
+class StationDetailAPIView(generics.RetrieveAPIView):
+    """GET /api/stations/<id>/ — single active station (same shape as list rows)."""
 
+    permission_classes = STAFF_API_PERMISSIONS
     serializer_class = StationSerializer
 
     def get_queryset(self):
@@ -62,6 +62,30 @@ class StationListAPIView(generics.ListAPIView):
         )
 
 
+class StationListAPIView(generics.ListAPIView):
+    """
+    Read-only list of active stations, ordered by name.
+    Staff session required (control panel).
+    """
+
+    permission_classes = STAFF_API_PERMISSIONS
+    serializer_class = StationSerializer
+
+    def get_queryset(self):
+        return (
+            Station.objects.filter(is_active=True)
+            .order_by("name")
+            .select_related("pricing_plan")
+            .prefetch_related(
+                Prefetch(
+                    "devices",
+                    queryset=StationDevice.objects.order_by("device_id"),
+                )
+            )
+        )
+
+
+@login_required
 def dashboard(request):
     mark_expired_sessions()
     stations = Station.objects.select_related("pricing_plan")
