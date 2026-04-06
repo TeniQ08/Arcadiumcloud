@@ -4,7 +4,7 @@ from .base import *  # noqa: F403
 
 DEBUG = True
 
-ALLOWED_HOSTS: list[str] = ["localhost", "127.0.0.1"]
+ALLOWED_HOSTS: list[str] = [ "localhost", "127.0.0.1", "178.104.137.48", "arcadiumcloud.com", "www.arcadiumcloud.com", "app.arcadiumcloud.com", ]
 
 DATABASES = {
     "default": {
