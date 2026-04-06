@@ -1,10 +1,25 @@
 """Production settings — override via environment."""
 
 import os
+from pathlib import Path
 
 from .base import *  # noqa: F403
 
-DEBUG = False
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+def read_env_file(path):
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip())
+
+read_env_file(BASE_DIR / ".env")
+
+DEBUG = os.environ.get("DJANGO_DEBUG", "False") == "True"
 
 ALLOWED_HOSTS = os.environ.get(
     "DJANGO_ALLOWED_HOSTS",
@@ -29,6 +44,5 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
