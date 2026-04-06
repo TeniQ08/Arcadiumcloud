@@ -4,7 +4,7 @@ from game_sessions.services import mark_expired_sessions
 
 
 class Command(BaseCommand):
-    help = "Mark expired legacy and prepaid sessions (prepaid also queues deactivate_station)."
+    help = "Mark expired active sessions and queue deactivate_station on devices."
 
     def handle(self, *args, **options):
         n = mark_expired_sessions()

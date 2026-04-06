@@ -111,15 +111,9 @@ def create_session_and_request_payment(
         raise ValidationError(f"Station '{station.name}' already has an open session.")
 
     plan = PricingPlan.objects.select_for_update().get(pk=pricing_plan_id, is_active=True)
-    if plan.plan_kind != PricingPlan.PlanKind.PREPAID_PACKAGE:
-        raise ValidationError("Selected plan is not a prepaid package.")
-
-    if plan.package_duration_minutes is None or plan.package_price is None:
-        raise ValidationError("Prepaid package is missing duration or price.")
 
     session = GameSession.objects.create(
         station=station,
-        billing_kind=GameSession.BillingKind.PREPAID_STK,
         pricing_plan=plan,
         opened_by=opened_by,
         customer_phone=phone,
@@ -151,11 +145,9 @@ def create_session_and_request_payment(
 
 
 @transaction.atomic
-def cancel_prepaid_session(session_id: int) -> GameSession:
-    """Cancel a prepaid session before or while awaiting activation (releases reserved station)."""
+def cancel_session(session_id: int) -> GameSession:
+    """Cancel before or while awaiting activation (releases reserved station)."""
     session = GameSession.objects.select_for_update().select_related("station", "payment").get(pk=session_id)
-    if session.billing_kind != GameSession.BillingKind.PREPAID_STK:
-        raise ValidationError("Only prepaid sessions can be cancelled.")
 
     allowed = {
         GameSession.Status.PENDING_PAYMENT,
@@ -193,8 +185,6 @@ def retry_stk_push_for_payment(payment_id: int) -> Payment:
     if payment.status != Payment.Status.PENDING:
         raise ValidationError("Only pending payments can retry STK.")
     session = payment.session
-    if session.billing_kind != GameSession.BillingKind.PREPAID_STK:
-        raise ValidationError("Only prepaid STK payments support retry.")
     if session.status != GameSession.Status.PENDING_PAYMENT:
         raise ValidationError("Session is not waiting for payment.")
     phone = (payment.phone_number or session.customer_phone or "").strip()
@@ -271,7 +261,7 @@ def handle_stk_callback(*, raw_body: bytes | str) -> Payment | None:
     Parse STK callback payload, update Payment + GameSession, queue activation on success.
     Idempotent: repeated success callbacks do not double-charge state.
 
-    Malformed or ambiguous prepaid callbacks return None without mutating state (fail closed).
+    Malformed or ambiguous callbacks return None without mutating state (fail closed).
     """
     if isinstance(raw_body, bytes):
         text = raw_body.decode("utf-8", errors="replace")
@@ -316,16 +306,10 @@ def handle_stk_callback(*, raw_body: bytes | str) -> Payment | None:
 
     session = payment.session
 
-    # Non-prepaid: persist raw callback only (audit); no STK state machine.
-    if session.billing_kind != GameSession.BillingKind.PREPAID_STK:
-        payment.raw_callback_payload = payload
-        payment.save(update_fields=["raw_callback_payload", "updated_at"])
-        return payment
-
-    # Prepaid: require a parseable ResultCode before any status transition.
+    # Require a parseable ResultCode before any status transition.
     rc_raw = _find_result_code(payload)
     if rc_raw is None:
-        logger.warning("STK callback rejected: prepaid callback missing ResultCode")
+        logger.warning("STK callback rejected: missing ResultCode")
         return None
     result_code = str(rc_raw).strip()
     if not result_code:
@@ -390,9 +374,6 @@ def handle_stk_callback(*, raw_body: bytes | str) -> Payment | None:
 
 @transaction.atomic
 def queue_activate_command(session: GameSession) -> DeviceCommand | None:
-    if session.billing_kind != GameSession.BillingKind.PREPAID_STK:
-        return None
-
     station = Station.objects.select_for_update().get(pk=session.station_id)
     device = StationDevice.objects.filter(station=station).first()
     if device is None:
@@ -439,17 +420,15 @@ def queue_deactivate_command(session: GameSession) -> DeviceCommand | None:
 
 
 @transaction.atomic
-def reconcile_prepaid_device_command(cmd: DeviceCommand) -> None:
+def reconcile_session_device_command(cmd: DeviceCommand) -> None:
     """
-    After ESP32 acknowledges a command, advance prepaid session + station state.
-    Legacy commands (session is null) are ignored here.
+    After ESP32 acknowledges a command, advance session + station state.
+    Commands without session are ignored.
     """
     if cmd.session_id is None:
         return
 
     session = GameSession.objects.select_for_update().select_related("station").get(pk=cmd.session_id)
-    if session.billing_kind != GameSession.BillingKind.PREPAID_STK:
-        return
 
     station = session.station
     now = timezone.now()

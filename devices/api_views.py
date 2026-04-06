@@ -23,7 +23,7 @@ from .services import (
     mark_offline_devices,
     reset_stale_sent_commands,
 )
-from game_sessions.prepaid_services import reconcile_prepaid_device_command
+from game_sessions.prepaid_services import reconcile_session_device_command
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +167,7 @@ class DeviceCommandResultAPIView(APIView):
         cmd.completed_at = timezone.now()
         cmd.save(update_fields=["status", "acknowledged_at", "result_text", "completed_at"])
 
-        reconcile_prepaid_device_command(cmd)
+        reconcile_session_device_command(cmd)
 
         return Response(
             {

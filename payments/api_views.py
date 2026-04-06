@@ -59,7 +59,7 @@ def _payment_validation_error(exc: ValidationError) -> Response:
 
 
 class PaymentRetryStkAPIView(APIView):
-    """POST /api/payments/<id>/retry-stk/ — re-issue STK stub for pending prepaid payment."""
+    """POST /api/payments/<id>/retry-stk/ — re-issue STK stub for a pending payment."""
 
     permission_classes = STAFF_API_PERMISSIONS
 

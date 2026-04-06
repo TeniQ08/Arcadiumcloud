@@ -21,14 +21,9 @@ def build_dashboard_summary() -> dict:
             GameSession.Status.COMPLETED,
             GameSession.Status.CANCELLED,
             GameSession.Status.PAYMENT_FAILED,
+            GameSession.Status.ACTIVATION_FAILED,
         )
     )
-
-    def _open_count(**filters) -> int:
-        return open_qs.filter(**filters).count()
-
-    prepaid_open = open_qs.filter(billing_kind=GameSession.BillingKind.PREPAID_STK)
-    legacy_open = open_qs.filter(billing_kind=GameSession.BillingKind.LEGACY_HOURLY)
 
     devices = StationDevice.objects.all()
     dev_online = devices.filter(status=StationDevice.Status.ONLINE).count()
@@ -46,17 +41,10 @@ def build_dashboard_summary() -> dict:
         },
         "sessions": {
             "open_total": open_qs.count(),
-            "legacy_active": legacy_open.filter(status=GameSession.Status.ACTIVE).count(),
-            "legacy_paused": legacy_open.filter(status=GameSession.Status.PAUSED).count(),
-            "legacy_expired": legacy_open.filter(status=GameSession.Status.EXPIRED).count(),
-            "prepaid_pending_payment": prepaid_open.filter(
-                status=GameSession.Status.PENDING_PAYMENT
-            ).count(),
-            "prepaid_activation_pending": prepaid_open.filter(
-                status=GameSession.Status.ACTIVATION_PENDING
-            ).count(),
-            "prepaid_active": prepaid_open.filter(status=GameSession.Status.ACTIVE).count(),
-            "prepaid_expired": prepaid_open.filter(status=GameSession.Status.EXPIRED).count(),
+            "pending_payment": open_qs.filter(status=GameSession.Status.PENDING_PAYMENT).count(),
+            "activation_pending": open_qs.filter(status=GameSession.Status.ACTIVATION_PENDING).count(),
+            "active": open_qs.filter(status=GameSession.Status.ACTIVE).count(),
+            "expired": open_qs.filter(status=GameSession.Status.EXPIRED).count(),
         },
         "devices": {
             "online": dev_online,

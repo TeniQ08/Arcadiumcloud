@@ -182,7 +182,7 @@
       border-color: rgba(59,130,246,.30);
       box-shadow: var(--shadow), 0 0 0 1px rgba(59,130,246,.12), 0 0 28px rgba(59,130,246,.07);
     }
-    .card.accent-paused{
+    .card.accent-awaiting{
       border-color: rgba(245,158,11,.30);
       box-shadow: var(--shadow), 0 0 0 1px rgba(245,158,11,.12), 0 0 28px rgba(245,158,11,.06);
     }
@@ -231,7 +231,7 @@
     .badge.in_use{ border-color: rgba(59,130,246,.40); color: #bfdbfe; }
     .badge.maintenance{ border-color: rgba(148,163,184,.35); color: #e2e8f0; }
     .badge.active{ border-color: rgba(59,130,246,.40); color: #bfdbfe; }
-    .badge.paused{ border-color: rgba(245,158,11,.45); color: #fde68a; }
+    .badge.awaiting{ border-color: rgba(245,158,11,.45); color: #fde68a; }
     .badge.expired{ border-color: rgba(239,68,68,.45); color: #fecaca; }
     .badge.device-online{ border-color: rgba(34,197,94,.45); color: #bbf7d0; }
     .badge.device-offline{ border-color: rgba(148,163,184,.45); color: #e2e8f0; }
@@ -355,7 +355,7 @@
     <section class="stats" aria-label="Summary">
       <div class="stat"><div class="label">Total stations</div><div id="statTotalStations" class="value">—</div></div>
       <div class="stat"><div class="label">Active sessions</div><div id="statActiveSessions" class="value">—</div></div>
-      <div class="stat"><div class="label">Paused sessions</div><div id="statPausedSessions" class="value">—</div></div>
+      <div class="stat"><div class="label">Before play (payment / activation)</div><div id="statBeforePlay" class="value">—</div></div>
       <div class="stat"><div class="label">Available stations</div><div id="statAvailableStations" class="value">—</div></div>
       <div class="stat"><div class="label">Devices online</div><div id="statDevicesOnline" class="value">—</div></div>
       <div class="stat"><div class="label">Devices offline</div><div id="statDevicesOffline" class="value">—</div></div>
@@ -371,7 +371,7 @@
 
   <div id="prepaidModal" class="modal-backdrop" aria-hidden="true">
     <div class="modal-panel" role="dialog" aria-labelledby="prepaidModalTitle">
-      <h3 id="prepaidModalTitle">Start prepaid session (STK)</h3>
+      <h3 id="prepaidModalTitle">New sale — M-Pesa STK</h3>
       <label for="prepaidPlanSelect">Package</label>
       <select id="prepaidPlanSelect"></select>
       <label for="prepaidPhone">Customer phone (M-Pesa)</label>
@@ -396,10 +396,9 @@
     let hasLoadedOnce = false;
     let prepaidPlans = [];
 
-    const SESSION_RAW_LABELS = {
+    const SESSION_STATUS_LABELS = {
       pending_payment: 'Pending payment',
       payment_failed: 'Payment failed',
-      paid: 'Paid',
       activation_pending: 'Activation pending',
       active: 'Active',
       expired: 'Expired',
@@ -421,9 +420,9 @@
     function labelStationRaw(raw) {
       return STATION_RAW_LABELS[raw] || String(raw || '');
     }
-    function labelSessionRaw(raw) {
-      if (!raw) return '';
-      return SESSION_RAW_LABELS[raw] || String(raw).replace(/_/g, ' ');
+    function labelSessionStatus(status) {
+      if (!status) return '';
+      return SESSION_STATUS_LABELS[status] || String(status).replace(/_/g, ' ');
     }
 
     function setLoading(loading) {
@@ -479,32 +478,19 @@
       return 'maintenance';
     }
 
-    function badgeClassForSessionStatus(status) {
-      if (status === 'active') return 'active';
-      if (status === 'paused') return 'paused';
-      if (status === 'expired') return 'expired';
-      return 'expired';
-    }
-
     function badgeClassForSessionDetail(session) {
       if (!session) return 'expired';
-      if (session.billing_kind === 'prepaid_stk' && session.session_status_raw) {
-        const r = session.session_status_raw;
-        if (r === 'active') return 'active';
-        if (r === 'expired') return 'expired';
-        if (r === 'pending_payment' || r === 'paid' || r === 'activation_pending') return 'paused';
-        if (r === 'payment_failed' || r === 'activation_failed') return 'expired';
-        return 'paused';
-      }
-      return badgeClassForSessionStatus(session.status);
+      const r = session.status;
+      if (r === 'active') return 'active';
+      if (r === 'expired') return 'expired';
+      if (r === 'pending_payment' || r === 'activation_pending') return 'awaiting';
+      if (r === 'payment_failed' || r === 'activation_failed' || r === 'cancelled' || r === 'completed') return 'expired';
+      return 'awaiting';
     }
 
     function sessionStatusText(session) {
       if (!session) return '';
-      if (session.billing_kind === 'prepaid_stk' && session.session_status_raw) {
-        return labelSessionRaw(session.session_status_raw);
-      }
-      return session.status;
+      return labelSessionStatus(session.status);
     }
 
     function badgeClassForDeviceStatus(status) {
@@ -555,14 +541,6 @@
         const rem = formatRemaining(iso);
         node.textContent = rem ? `Remaining: ${rem}` : '';
       }
-    }
-
-    function validatePositiveInt(value) {
-      const n = Number(value);
-      if (!Number.isFinite(n)) return null;
-      const i = Math.floor(n);
-      if (i <= 0) return null;
-      return i;
     }
 
     function disableWhile(btn, promise) {
@@ -678,17 +656,16 @@
 
         const session = sessionsByStationId.get(st.id) || null;
         const raw = stationRaw(st);
+        const sessStatus = session ? session.status : null;
         const sessEndIso = session ? (session.expires_at || session.expected_end_time || '') : '';
         const remaining = session ? formatRemaining(sessEndIso) : '';
-        const isPrepaid = session && session.billing_kind === 'prepaid_stk';
 
         if (raw === 'maintenance' || raw === 'offline') div.classList.add('accent-maintenance');
         else if (st.device && st.device.status === 'fault') div.classList.add('accent-device-fault');
         else if (raw === 'reserved') div.classList.add('accent-reserved');
-        else if (session && session.billing_kind === 'prepaid_stk' && session.session_status_raw === 'active') div.classList.add('accent-active');
-        else if (session && session.status === 'active') div.classList.add('accent-active');
-        else if (session && session.status === 'paused') div.classList.add('accent-paused');
-        else if (session && session.status === 'expired') div.classList.add('accent-expired');
+        else if (sessStatus === 'active') div.classList.add('accent-active');
+        else if (sessStatus === 'pending_payment' || sessStatus === 'activation_pending') div.classList.add('accent-awaiting');
+        else if (sessStatus === 'expired') div.classList.add('accent-expired');
         else if (!session && raw === 'available') div.classList.add('accent-available');
         else if (!session && raw === 'in_use') div.classList.add('accent-active');
 
@@ -718,7 +695,7 @@
           <div class="card-header">
             <div>
               <div class="station-name">${escapeHtml(st.name)}</div>
-              <div class="muted">Plan: ${escapeHtml(st.pricing_plan_name || '(unknown)')} · Rate: ${escapeHtml(String(st.rate_per_hour ?? '(unknown)'))} / hr</div>
+              <div class="muted">Default package: ${escapeHtml(st.pricing_plan_name || '(unknown)')} · ${escapeHtml(String(st.package_price ?? '—'))} KSh / ${escapeHtml(String(st.package_duration_minutes ?? '—'))} min</div>
             </div>
             <div class="row">
               ${stationBadge}
@@ -736,9 +713,9 @@
                 </div>
                 <div class="muted" data-expected-end="${sessEndIso || ''}">${remaining ? `Remaining: ${remaining}` : ''}</div>
               </div>
-              ${isPrepaid ? `<div class="session-kind">Prepaid (STK)</div>` : ''}
+              <div class="session-kind">Pay-before-play (STK)</div>
               <div class="muted" style="margin-top:6px;">
-                Customer: ${session.customer_name ? escapeHtml(session.customer_name) : 'Walk-in'}
+                Customer: ${session.customer_name ? escapeHtml(session.customer_name) : '—'}
                 ${session.game_name ? ` · Game: ${escapeHtml(session.game_name)}` : ''}
               </div>
             ` : `
@@ -748,113 +725,28 @@
           ${deviceStrip}
         `;
 
-        const btnStart = document.createElement('button');
-        btnStart.type = 'button';
-        btnStart.className = 'btn primary';
-        btnStart.textContent = 'Start';
-        btnStart.disabled = isLoading || !!session;
-        btnStart.onclick = async (e) => {
-          const durationRaw = prompt('Duration minutes:', '60') || '';
-          const duration = validatePositiveInt(durationRaw);
-          if (!duration) return showMessage('error', 'Please enter a valid positive duration in minutes.');
-          const customer = (prompt('Customer name (optional):', '') || '').trim();
-          try {
-            await disableWhile(e.currentTarget, (async () => {
-              const resp = await apiPost('/api/sessions/start/', {
-                station_id: st.id,
-                duration_minutes: duration,
-                customer_name: customer
-              });
-              showMessage('success', resp.message || 'Session started.');
-              await loadData();
-            })());
-          } catch (err) {
-            showMessage('error', formatError(err));
-          }
-        };
-
         const btnPrepaid = document.createElement('button');
         btnPrepaid.type = 'button';
-        btnPrepaid.className = 'btn';
-        btnPrepaid.textContent = 'Prepaid (STK)';
+        btnPrepaid.className = 'btn primary';
+        btnPrepaid.textContent = 'New sale (STK)';
         btnPrepaid.disabled = isLoading || !!session || raw !== 'available';
         btnPrepaid.onclick = () => openPrepaidModal(st.id);
 
-        const btnPause = document.createElement('button');
-        btnPause.type = 'button';
-        btnPause.className = 'btn';
-        btnPause.textContent = 'Pause';
-        btnPause.disabled = isLoading || !session || isPrepaid;
-        btnPause.onclick = async (e) => {
-          if (!session) return showMessage('error', 'No session for this station.');
+        const canCancel =
+          session &&
+          ['pending_payment', 'activation_pending', 'activation_failed'].includes(session.status);
+        const btnCancel = document.createElement('button');
+        btnCancel.type = 'button';
+        btnCancel.className = 'btn danger';
+        btnCancel.textContent = 'Cancel sale';
+        btnCancel.disabled = isLoading || !canCancel;
+        btnCancel.onclick = async (e) => {
+          if (!session || !canCancel) return;
+          if (!confirm('Cancel this sale and release the station?')) return;
           try {
             await disableWhile(e.currentTarget, (async () => {
-              const resp = await apiPost('/api/sessions/pause/', { session_id: session.id });
-              showMessage('success', resp.message || 'Session paused.');
-              await loadData();
-            })());
-          } catch (err) {
-            showMessage('error', formatError(err));
-          }
-        };
-
-        const btnResume = document.createElement('button');
-        btnResume.type = 'button';
-        btnResume.className = 'btn';
-        btnResume.textContent = 'Resume';
-        btnResume.disabled = isLoading || !session || isPrepaid;
-        btnResume.onclick = async (e) => {
-          if (!session) return showMessage('error', 'No session for this station.');
-          try {
-            await disableWhile(e.currentTarget, (async () => {
-              const resp = await apiPost('/api/sessions/resume/', { session_id: session.id });
-              showMessage('success', resp.message || 'Session resumed.');
-              await loadData();
-            })());
-          } catch (err) {
-            showMessage('error', formatError(err));
-          }
-        };
-
-        const btnEnd = document.createElement('button');
-        btnEnd.type = 'button';
-        btnEnd.className = 'btn danger';
-        btnEnd.textContent = 'End';
-        btnEnd.disabled = isLoading || !session || isPrepaid;
-        btnEnd.onclick = async (e) => {
-          if (!session) return showMessage('error', 'No session for this station.');
-          if (!confirm("End this session?")) return;
-          try {
-            await disableWhile(e.currentTarget, (async () => {
-              const resp = await apiPost('/api/sessions/end/', { session_id: session.id });
-              showMessage('success', resp.message || 'Session ended.');
-              if (resp.payment) {
-                showMessage(
-                  'success',
-                  `Payment due: ${resp.payment.amount_due}, paid: ${resp.payment.amount_paid}, status: ${resp.payment.payment_status}`
-                );
-              }
-              await loadData();
-            })());
-          } catch (err) {
-            showMessage('error', formatError(err));
-          }
-        };
-
-        const btnExtend = document.createElement('button');
-        btnExtend.type = 'button';
-        btnExtend.className = 'btn';
-        btnExtend.textContent = 'Extend';
-        btnExtend.disabled = isLoading || !session || isPrepaid;
-        btnExtend.onclick = async (e) => {
-          if (!session) return showMessage('error', 'No session for this station.');
-          const addRaw = prompt('Additional minutes:', '15') || '';
-          const add = validatePositiveInt(addRaw);
-          if (!add) return showMessage('error', 'Please enter a valid positive number of minutes to extend.');
-          try {
-            await disableWhile(e.currentTarget, (async () => {
-              const resp = await apiPost('/api/sessions/extend/', { session_id: session.id, additional_minutes: add });
-              showMessage('success', resp.message || 'Session extended.');
+              await apiPost('/api/sessions/' + session.id + '/cancel/', {});
+              showMessage('success', 'Sale cancelled.');
               await loadData();
             })());
           } catch (err) {
@@ -864,12 +756,8 @@
 
         const group = document.createElement('div');
         group.className = 'btn-group';
-        group.appendChild(btnStart);
         group.appendChild(btnPrepaid);
-        group.appendChild(btnPause);
-        group.appendChild(btnResume);
-        group.appendChild(btnExtend);
-        group.appendChild(btnEnd);
+        group.appendChild(btnCancel);
         div.appendChild(group);
 
         root.appendChild(div);
@@ -879,10 +767,10 @@
     function renderStats(stations, openSessions, summary) {
       if (summary && summary.stations && summary.sessions && summary.devices) {
         document.getElementById('statTotalStations').textContent = String(summary.stations.total);
-        const active =
-          (summary.sessions.legacy_active || 0) + (summary.sessions.prepaid_active || 0);
-        document.getElementById('statActiveSessions').textContent = String(active);
-        document.getElementById('statPausedSessions').textContent = String(summary.sessions.legacy_paused || 0);
+        document.getElementById('statActiveSessions').textContent = String(summary.sessions.active || 0);
+        const beforePlay =
+          (summary.sessions.pending_payment || 0) + (summary.sessions.activation_pending || 0);
+        document.getElementById('statBeforePlay').textContent = String(beforePlay);
         document.getElementById('statAvailableStations').textContent = String(summary.stations.available || 0);
         document.getElementById('statDevicesOnline').textContent = String(summary.devices.online || 0);
         document.getElementById('statDevicesOffline').textContent = String(summary.devices.offline || 0);
@@ -893,7 +781,9 @@
       const totalStations = (stations || []).length;
       const sessions = ((openSessions && openSessions.sessions) || []);
       const activeSessions = sessions.filter(s => s.status === 'active').length;
-      const pausedSessions = sessions.filter(s => s.status === 'paused').length;
+      const beforePlay = sessions.filter(
+        s => s.status === 'pending_payment' || s.status === 'activation_pending'
+      ).length;
       const availableStations = (stations || []).filter(s => stationRaw(s) === 'available').length;
 
       let devicesOnline = 0;
@@ -909,7 +799,7 @@
 
       document.getElementById('statTotalStations').textContent = String(totalStations);
       document.getElementById('statActiveSessions').textContent = String(activeSessions);
-      document.getElementById('statPausedSessions').textContent = String(pausedSessions);
+      document.getElementById('statBeforePlay').textContent = String(beforePlay);
       document.getElementById('statAvailableStations').textContent = String(availableStations);
       document.getElementById('statDevicesOnline').textContent = String(devicesOnline);
       document.getElementById('statDevicesOffline').textContent = String(devicesOffline);
@@ -974,7 +864,7 @@
         return;
       }
       if (!planId || !Number.isFinite(planId)) {
-        showMessage('error', 'Select a prepaid package. Add active prepaid plans in Admin if the list is empty.');
+        showMessage('error', 'Select a package. Add active pricing plans in Admin if the list is empty.');
         return;
       }
       const btn = document.getElementById('prepaidSubmit');

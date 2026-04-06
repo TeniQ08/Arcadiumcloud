@@ -1,13 +1,12 @@
 from rest_framework import serializers
 
-from pricing.models import PricingPlan
-
 from .models import Station
 
 
 class StationSerializer(serializers.ModelSerializer):
     pricing_plan_name = serializers.CharField(source="pricing_plan.name", read_only=True)
-    rate_per_hour = serializers.SerializerMethodField()
+    package_price = serializers.SerializerMethodField()
+    package_duration_minutes = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
     status_raw = serializers.SerializerMethodField()
     device = serializers.SerializerMethodField()
@@ -22,14 +21,15 @@ class StationSerializer(serializers.ModelSerializer):
             "pricing_plan",
             "is_active",
             "pricing_plan_name",
-            "rate_per_hour",
+            "package_price",
+            "package_duration_minutes",
             "device",
             "created_at",
             "updated_at",
         ]
 
     def get_status(self, obj) -> str:
-        """Expose legacy-compatible station status for the dashboard."""
+        """Dashboard-friendly station status (reserved grouped with in-use for badge styling)."""
         if obj.status == Station.Status.RESERVED:
             return Station.Status.IN_USE
         if obj.status == Station.Status.OFFLINE:
@@ -37,22 +37,21 @@ class StationSerializer(serializers.ModelSerializer):
         return obj.status
 
     def get_status_raw(self, obj) -> str:
-        """Actual DB status for UI that distinguishes reserved vs active."""
         return obj.status
 
-    def get_rate_per_hour(self, obj):
-        """Legacy dashboard expects a numeric string; prepaid packages use package price."""
+    def get_package_price(self, obj):
         plan = obj.pricing_plan
         if plan is None:
             return None
-        if plan.plan_kind == PricingPlan.PlanKind.PREPAID_PACKAGE and plan.package_price is not None:
-            return str(plan.package_price)
-        if plan.rate_per_hour is not None:
-            return str(plan.rate_per_hour)
-        return "0"
+        return str(plan.package_price)
+
+    def get_package_duration_minutes(self, obj):
+        plan = obj.pricing_plan
+        if plan is None:
+            return None
+        return plan.package_duration_minutes
 
     def get_device(self, obj):
-        """First registered controller for this station (ordered by device_id)."""
         dev = obj.devices.first()
         if not dev:
             return None
