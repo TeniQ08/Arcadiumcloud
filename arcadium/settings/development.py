@@ -12,3 +12,4 @@ DATABASES = {
         "NAME": BASE_DIR / "db.sqlite3",  # noqa: F405
     }
 }
+STATIC_ROOT = BASE_DIR / "staticfiles"
