@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -13,6 +12,7 @@ from django.utils import timezone
 
 from devices.models import DeviceCommand, StationDevice
 from payments.models import Payment
+from payments.services.daraja import initiate_stk_push
 from pricing.models import PricingPlan
 from stations.models import Station
 
@@ -35,56 +35,64 @@ def _log_event(session: GameSession, event_type: str, message: str = "", metadat
     )
 
 
-def initiate_stk_push_stub(
+def request_stk_push(
     *,
     payment: Payment,
     session: GameSession,
     phone: str,
 ) -> dict[str, Any]:
-    """
-    Placeholder Daraja STK initiation. Replace with real HTTP call later.
-    Returns a dict shaped like a successful Daraja response and persists IDs + raw payload.
-    """
-    merchant_request_id = f"MR{uuid.uuid4().hex[:16].upper()}"
-    checkout_request_id = f"ws_CO_{uuid.uuid4().hex[:24]}"
+    """Send a real Daraja STK Push and persist request/response metadata."""
+    account_reference = f"ARC{session.pk}"
+    response = initiate_stk_push(
+        phone_number=phone,
+        amount=payment.amount_due,
+        account_reference=account_reference,
+        transaction_desc=f"Arcadium session {session.pk}",
+    )
 
-    raw_request = {
-        "MerchantRequestID": merchant_request_id,
-        "CheckoutRequestID": checkout_request_id,
-        "ResponseCode": "0",
-        "ResponseDescription": "Success. Request accepted for processing",
-        "PhoneNumber": phone,
-        "Amount": str(payment.amount_due),
-        "stub": True,
-    }
-
-    payment.merchant_request_id = merchant_request_id
-    payment.checkout_request_id = checkout_request_id
+    payment.merchant_request_id = response.merchant_request_id
+    payment.checkout_request_id = response.checkout_request_id
+    payment.response_code = response.response_code
+    payment.response_description = response.response_description
+    payment.customer_message = response.customer_message
     payment.phone_number = phone
     payment.method = Payment.Method.MPESA
-    payment.raw_request_payload = raw_request
+    payment.raw_stk_request = response.request_payload
+    payment.raw_stk_response = response.response_payload
+    payment.raw_request_payload = response.request_payload
+    payment.raw_response_payload = response.response_payload
     payment.save(
         update_fields=[
             "merchant_request_id",
             "checkout_request_id",
+            "response_code",
+            "response_description",
+            "customer_message",
             "phone_number",
             "method",
+            "raw_stk_request",
+            "raw_stk_response",
             "raw_request_payload",
+            "raw_response_payload",
             "updated_at",
         ]
     )
 
-    session.merchant_request_id = merchant_request_id
-    session.checkout_request_id = checkout_request_id
+    session.merchant_request_id = response.merchant_request_id
+    session.checkout_request_id = response.checkout_request_id
     session.save(update_fields=["merchant_request_id", "checkout_request_id", "updated_at"])
 
     _log_event(
         session,
         SessionEvent.EventType.PAYMENT_INITIATED,
-        "STK push initiated (stub)",
-        {"checkout_request_id": checkout_request_id},
+        "STK push initiated",
+        {
+            "checkout_request_id": response.checkout_request_id,
+            "merchant_request_id": response.merchant_request_id,
+            "response_code": response.response_code,
+        },
     )
-    return raw_request
+    return response.response_payload
 
 
 @transaction.atomic
@@ -140,7 +148,7 @@ def create_session_and_request_payment(
 
     _log_event(session, SessionEvent.EventType.CREATED, "Prepaid session created")
 
-    initiate_stk_push_stub(payment=payment, session=session, phone=phone)
+    request_stk_push(payment=payment, session=session, phone=phone)
     return session, payment
 
 
@@ -180,7 +188,7 @@ def cancel_session(session_id: int) -> GameSession:
 
 @transaction.atomic
 def retry_stk_push_for_payment(payment_id: int) -> Payment:
-    """Re-issue STK stub for a payment still in pending state."""
+    """Re-issue STK Push for a payment still in pending state."""
     payment = Payment.objects.select_for_update().select_related("session").get(pk=payment_id)
     if payment.status != Payment.Status.PENDING:
         raise ValidationError("Only pending payments can retry STK.")
@@ -191,7 +199,7 @@ def retry_stk_push_for_payment(payment_id: int) -> Payment:
     if not phone:
         raise ValidationError("No phone number on file for this payment.")
     phone = normalize_ke_phone(phone)
-    initiate_stk_push_stub(payment=payment, session=session, phone=phone)
+    request_stk_push(payment=payment, session=session, phone=phone)
     return payment
 
 
@@ -238,21 +246,75 @@ def _find_result_code(payload: dict[str, Any]) -> str | None:
     return None
 
 
-def _extract_mpesa_receipt(payload: dict[str, Any]) -> str:
+def _find_merchant_request_id(payload: dict[str, Any]) -> str:
+    body = payload.get("Body")
+    cb = _stk_body_dict(body)
+    raw = cb.get("MerchantRequestID") or payload.get("MerchantRequestID") or ""
+    return str(raw).strip()
+
+
+def _find_result_desc(payload: dict[str, Any]) -> str:
+    body = payload.get("Body")
+    cb = _stk_body_dict(body)
+    raw = cb.get("ResultDesc") or payload.get("ResultDesc") or ""
+    return str(raw).strip()
+
+
+def _callback_metadata_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
     body = payload.get("Body")
     cb = _stk_body_dict(body)
     meta = cb.get("CallbackMetadata") if isinstance(cb.get("CallbackMetadata"), dict) else {}
     if not isinstance(meta, dict):
-        meta = {}
+        return []
     items = meta.get("Item") or []
     if not isinstance(items, list):
-        return ""
-    for item in items:
-        if not isinstance(item, dict):
-            continue
+        return []
+    return [item for item in items if isinstance(item, dict)]
+
+
+def _callback_metadata_map(payload: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for item in _callback_metadata_items(payload):
+        name = item.get("Name")
+        if name:
+            out[str(name)] = item.get("Value")
+    return out
+
+
+def _extract_mpesa_receipt(payload: dict[str, Any]) -> str:
+    for item in _callback_metadata_items(payload):
         if item.get("Name") == "MpesaReceiptNumber":
-            return str(item.get("Value") or "")
+            return str(item.get("Value") or "").strip()
     return ""
+
+
+def _extract_callback_amount(payload: dict[str, Any]) -> Decimal:
+    value = _callback_metadata_map(payload).get("Amount")
+    if value in (None, ""):
+        return Decimal("0.00")
+    try:
+        return Decimal(str(value)).quantize(Decimal("0.01"))
+    except Exception:
+        logger.warning("STK callback included invalid Amount metadata")
+        return Decimal("0.00")
+
+
+def _extract_callback_phone(payload: dict[str, Any]) -> str:
+    value = _callback_metadata_map(payload).get("PhoneNumber")
+    return str(value or "").strip()
+
+
+def _extract_transaction_date(payload: dict[str, Any]):
+    value = _callback_metadata_map(payload).get("TransactionDate")
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.strptime(raw, "%Y%m%d%H%M%S")
+    except ValueError:
+        logger.warning("STK callback included invalid TransactionDate metadata")
+        return None
+    return timezone.make_aware(parsed, timezone.get_current_timezone())
 
 
 @transaction.atomic
@@ -316,25 +378,47 @@ def handle_stk_callback(*, raw_body: bytes | str) -> Payment | None:
         logger.warning("STK callback rejected: empty ResultCode after strip")
         return None
 
+    merchant_request_id = _find_merchant_request_id(payload)
+    result_desc = _find_result_desc(payload)
     payment.raw_callback_payload = payload
-    payment.save(update_fields=["raw_callback_payload", "updated_at"])
+    if merchant_request_id and not payment.merchant_request_id:
+        payment.merchant_request_id = merchant_request_id
+    if checkout_id and not payment.checkout_request_id:
+        payment.checkout_request_id = checkout_id
+    payment.save(update_fields=["merchant_request_id", "checkout_request_id", "raw_callback_payload", "updated_at"])
 
     success = result_code == "0"
+    paid_statuses = {Payment.Status.PAID, Payment.Status.SUCCESS}
 
-    if success and payment.status == Payment.Status.SUCCESS:
+    if payment.status in paid_statuses:
+        logger.info("STK callback ignored: payment already processed checkout_request_id=%s", checkout_id)
+        return payment
+
+    receipt = _extract_mpesa_receipt(payload)
+    if success and receipt:
+        existing = (
+            Payment.objects.select_for_update()
+            .filter(mpesa_receipt_number=receipt, status__in=paid_statuses)
+            .exclude(pk=payment.pk)
+            .first()
+        )
+        if existing is not None:
+            logger.warning("STK callback ignored: duplicate MpesaReceiptNumber checkout_request_id=%s", checkout_id)
+            return existing
+
+    if success and session.status != GameSession.Status.PENDING_PAYMENT:
+        logger.info("STK callback ignored: session is no longer pending payment session_id=%s", session.pk)
         return payment
 
     if not success:
-        body = payload.get("Body")
-        cb = _stk_body_dict(body)
-        result_desc = str(cb.get("ResultDesc") or "") if cb else ""
-        payment.status = Payment.Status.FAILED
+        cancelled = result_code == "1032"
+        payment.status = Payment.Status.CANCELLED if cancelled else Payment.Status.FAILED
         payment.result_code = result_code
         payment.result_description = result_desc
         payment.save(
             update_fields=["status", "result_code", "result_description", "raw_callback_payload", "updated_at"]
         )
-        session.status = GameSession.Status.PAYMENT_FAILED
+        session.status = GameSession.Status.CANCELLED if cancelled else GameSession.Status.PAYMENT_FAILED
         session.save(update_fields=["status", "updated_at"])
         st = session.station
         st.status = Station.Status.AVAILABLE
@@ -343,17 +427,59 @@ def handle_stk_callback(*, raw_body: bytes | str) -> Payment | None:
         return payment
 
     now = timezone.now()
-    receipt = _extract_mpesa_receipt(payload)
-    payment.status = Payment.Status.SUCCESS
+    amount_paid = _extract_callback_amount(payload)
+    callback_phone = _extract_callback_phone(payload)
+    transaction_date = _extract_transaction_date(payload)
+    if amount_paid < payment.amount_due:
+        payment.status = Payment.Status.FAILED
+        payment.amount_paid = amount_paid
+        payment.result_code = result_code
+        payment.result_description = "STK success amount was less than amount due."
+        payment.save(
+            update_fields=[
+                "status",
+                "amount_paid",
+                "result_code",
+                "result_description",
+                "raw_callback_payload",
+                "updated_at",
+            ]
+        )
+        session.status = GameSession.Status.PAYMENT_FAILED
+        session.save(update_fields=["status", "updated_at"])
+        st = session.station
+        st.status = Station.Status.AVAILABLE
+        st.save(update_fields=["status", "updated_at"])
+        _log_event(
+            session,
+            SessionEvent.EventType.PAYMENT_FAILED,
+            "STK payment amount was less than amount due",
+            {"amount_paid": str(amount_paid), "amount_due": str(payment.amount_due)},
+        )
+        return payment
+
+    payment.status = Payment.Status.PAID
+    payment.amount_paid = amount_paid
     payment.paid_at = now
     payment.mpesa_receipt_number = receipt
+    if callback_phone:
+        payment.phone_number = callback_phone
+        payment.mpesa_phone_number = callback_phone
+    if transaction_date is not None:
+        payment.transaction_date = transaction_date
+        payment.mpesa_transaction_date = transaction_date
     payment.result_code = result_code
-    payment.result_description = "STK success"
+    payment.result_description = result_desc or "STK success"
     payment.save(
         update_fields=[
             "status",
+            "amount_paid",
             "paid_at",
             "mpesa_receipt_number",
+            "phone_number",
+            "mpesa_phone_number",
+            "transaction_date",
+            "mpesa_transaction_date",
             "result_code",
             "result_description",
             "raw_callback_payload",

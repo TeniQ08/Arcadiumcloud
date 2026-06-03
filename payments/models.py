@@ -6,6 +6,7 @@ from django.db import models
 class Payment(models.Model):
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
+        PAID = "paid", "Paid"
         SUCCESS = "success", "Success"
         FAILED = "failed", "Failed"
         CANCELLED = "cancelled", "Cancelled"
@@ -41,11 +42,19 @@ class Payment(models.Model):
 
     merchant_request_id = models.CharField(max_length=80, blank=True, default="", db_index=True)
     checkout_request_id = models.CharField(max_length=80, blank=True, default="", db_index=True)
+    response_code = models.CharField(max_length=32, blank=True, default="")
+    response_description = models.TextField(blank=True, default="")
+    customer_message = models.TextField(blank=True, default="")
     mpesa_receipt_number = models.CharField(max_length=80, blank=True, default="")
+    mpesa_transaction_date = models.DateTimeField(null=True, blank=True)
+    mpesa_phone_number = models.CharField(max_length=20, blank=True, default="")
     transaction_date = models.DateTimeField(null=True, blank=True)
     result_code = models.CharField(max_length=32, blank=True, default="")
     result_description = models.TextField(blank=True, default="")
+    raw_stk_request = models.JSONField(null=True, blank=True)
+    raw_stk_response = models.JSONField(null=True, blank=True)
     raw_request_payload = models.JSONField(null=True, blank=True)
+    raw_response_payload = models.JSONField(null=True, blank=True)
     raw_callback_payload = models.JSONField(null=True, blank=True)
 
     paid_at = models.DateTimeField(null=True, blank=True)

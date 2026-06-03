@@ -12,7 +12,14 @@ class PaymentAdmin(admin.ModelAdmin):
         "status",
         "method",
         "checkout_request_id",
+        "response_code",
         "paid_at",
     )
     list_filter = ("status", "method")
-    search_fields = ("checkout_request_id", "merchant_request_id", "mpesa_receipt_number", "phone_number")
+    search_fields = (
+        "checkout_request_id",
+        "merchant_request_id",
+        "mpesa_receipt_number",
+        "phone_number",
+        "mpesa_phone_number",
+    )
