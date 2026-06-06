@@ -10,6 +10,7 @@ class GameSession(models.Model):
         ACTIVATION_PENDING = "activation_pending", "Activation pending"
         ACTIVATION_FAILED = "activation_failed", "Activation failed"
         ACTIVE = "active", "Active"
+        PAUSED = "paused", "Paused"
         EXPIRED = "expired", "Expired"
         COMPLETED = "completed", "Completed"
         CANCELLED = "cancelled", "Cancelled"
@@ -44,6 +45,8 @@ class GameSession(models.Model):
     start_time = models.DateTimeField(null=True, blank=True)
     expected_end_time = models.DateTimeField(null=True, blank=True)
     actual_end_time = models.DateTimeField(null=True, blank=True)
+    paused_at = models.DateTimeField(null=True, blank=True)
+    remaining_seconds_at_pause = models.PositiveIntegerField(null=True, blank=True)
 
     status = models.CharField(
         max_length=32,
@@ -89,6 +92,9 @@ class SessionEvent(models.Model):
         PAYMENT_FAILED = "payment_failed", "Payment failed"
         ACTIVATION_REQUESTED = "activation_requested", "Activation requested"
         ACTIVATED = "activated", "Activated"
+        PAUSED = "paused", "Paused"
+        RESUMED = "resumed", "Resumed"
+        EXTENDED = "extended", "Extended"
         DEACTIVATION_REQUESTED = "deactivation_requested", "Deactivation requested"
         DEACTIVATED = "deactivated", "Deactivated"
         EXPIRED = "expired", "Expired"
@@ -114,3 +120,42 @@ class SessionEvent(models.Model):
 
     def __str__(self) -> str:
         return f"{self.event_type} @ {self.created_at}"
+
+
+class SessionAdjustment(models.Model):
+    """Auditable staff adjustment to a game session."""
+
+    class AdjustmentType(models.TextChoices):
+        MANUAL_EXTEND = "manual_extend", "Manual extend"
+
+    session = models.ForeignKey(
+        GameSession,
+        on_delete=models.CASCADE,
+        related_name="adjustments",
+    )
+    adjustment_type = models.CharField(
+        max_length=40,
+        choices=AdjustmentType.choices,
+        default=AdjustmentType.MANUAL_EXTEND,
+        db_index=True,
+    )
+    minutes_added = models.PositiveIntegerField()
+    reason = models.TextField()
+    performed_by = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="session_adjustments",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["session", "created_at"]),
+            models.Index(fields=["adjustment_type"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.adjustment_type} +{self.minutes_added}m for session {self.session_id}"

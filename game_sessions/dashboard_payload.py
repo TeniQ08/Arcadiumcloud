@@ -14,9 +14,9 @@ def open_sessions_queryset():
     excluded = (
         GameSession.Status.COMPLETED,
         GameSession.Status.CANCELLED,
-        GameSession.Status.PAYMENT_FAILED,
-        GameSession.Status.ACTIVATION_FAILED,
-    )
+            GameSession.Status.PAYMENT_FAILED,
+            GameSession.Status.ACTIVATION_FAILED,
+        )
     return (
         GameSession.objects.exclude(status__in=excluded)
         .select_related("station")
@@ -55,4 +55,5 @@ def session_payload_for_dashboard(session: GameSession) -> dict:
         "game_name": session.game_name or "",
         "package_price": str(price_display),
         "duration_minutes": session.duration_minutes_snapshot,
+        "remaining_seconds_at_pause": session.remaining_seconds_at_pause,
     }

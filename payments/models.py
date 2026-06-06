@@ -15,11 +15,23 @@ class Payment(models.Model):
     class Method(models.TextChoices):
         MPESA = "mpesa", "M-Pesa"
 
-    session = models.OneToOneField(
+    class PaymentType(models.TextChoices):
+        SESSION_START = "session_start", "Session start"
+        PAID_EXTEND = "paid_extend", "Paid extend"
+
+    session = models.ForeignKey(
         "game_sessions.GameSession",
         on_delete=models.PROTECT,
-        related_name="payment",
+        related_name="payments",
     )
+    payment_type = models.CharField(
+        max_length=32,
+        choices=PaymentType.choices,
+        default=PaymentType.SESSION_START,
+        db_index=True,
+    )
+    extension_duration_minutes = models.PositiveIntegerField(null=True, blank=True)
+    extension_applied_at = models.DateTimeField(null=True, blank=True)
     amount_due = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
     amount_paid = models.DecimalField(
         max_digits=10,

@@ -16,7 +16,7 @@ from payments.services.daraja import initiate_stk_push
 from pricing.models import PricingPlan
 from stations.models import Station
 
-from .models import GameSession, SessionEvent
+from .models import GameSession, SessionAdjustment, SessionEvent
 from .phone_utils import normalize_ke_phone
 from .services import _blocking_statuses
 
@@ -43,11 +43,13 @@ def request_stk_push(
 ) -> dict[str, Any]:
     """Send a real Daraja STK Push and persist request/response metadata."""
     account_reference = f"ARC{session.pk}"
+    if payment.payment_type == Payment.PaymentType.PAID_EXTEND:
+        account_reference = f"ARC{session.pk}EXT"
     response = initiate_stk_push(
         phone_number=phone,
         amount=payment.amount_due,
         account_reference=account_reference,
-        transaction_desc=f"Arcadium session {session.pk}",
+        transaction_desc=f"Arcadium {payment.get_payment_type_display()} {session.pk}",
     )
 
     payment.merchant_request_id = response.merchant_request_id
@@ -78,9 +80,10 @@ def request_stk_push(
         ]
     )
 
-    session.merchant_request_id = response.merchant_request_id
-    session.checkout_request_id = response.checkout_request_id
-    session.save(update_fields=["merchant_request_id", "checkout_request_id", "updated_at"])
+    if payment.payment_type == Payment.PaymentType.SESSION_START:
+        session.merchant_request_id = response.merchant_request_id
+        session.checkout_request_id = response.checkout_request_id
+        session.save(update_fields=["merchant_request_id", "checkout_request_id", "updated_at"])
 
     _log_event(
         session,
@@ -136,6 +139,7 @@ def create_session_and_request_payment(
 
     payment = Payment.objects.create(
         session=session,
+        payment_type=Payment.PaymentType.SESSION_START,
         amount_due=plan.package_price,
         amount_paid=Decimal("0.00"),
         status=Payment.Status.PENDING,
@@ -155,7 +159,7 @@ def create_session_and_request_payment(
 @transaction.atomic
 def cancel_session(session_id: int) -> GameSession:
     """Cancel before or while awaiting activation (releases reserved station)."""
-    session = GameSession.objects.select_for_update().select_related("station", "payment").get(pk=session_id)
+    session = GameSession.objects.select_for_update().select_related("station").get(pk=session_id)
 
     allowed = {
         GameSession.Status.PENDING_PAYMENT,
@@ -177,8 +181,8 @@ def cancel_session(session_id: int) -> GameSession:
         station.status = Station.Status.AVAILABLE
         station.save(update_fields=["status", "updated_at"])
 
-    pay = session.payment
-    if pay.status == Payment.Status.PENDING:
+    pay = session.payments.filter(payment_type=Payment.PaymentType.SESSION_START).order_by("-created_at").first()
+    if pay is not None and pay.status == Payment.Status.PENDING:
         pay.status = Payment.Status.CANCELLED
         pay.save(update_fields=["status", "updated_at"])
 
@@ -201,6 +205,193 @@ def retry_stk_push_for_payment(payment_id: int) -> Payment:
     phone = normalize_ke_phone(phone)
     request_stk_push(payment=payment, session=session, phone=phone)
     return payment
+
+
+def _extendable_statuses() -> tuple[str, ...]:
+    return (
+        GameSession.Status.ACTIVE,
+        GameSession.Status.PAUSED,
+    )
+
+
+def _terminal_statuses() -> tuple[str, ...]:
+    return (
+        GameSession.Status.COMPLETED,
+        GameSession.Status.EXPIRED,
+        GameSession.Status.CANCELLED,
+        GameSession.Status.PAYMENT_FAILED,
+        GameSession.Status.ACTIVATION_FAILED,
+    )
+
+
+def _add_duration_to_session(session: GameSession, duration_minutes: int) -> None:
+    seconds = int(duration_minutes) * 60
+    if seconds <= 0:
+        raise ValidationError("Duration must be greater than zero.")
+
+    if session.status == GameSession.Status.ACTIVE:
+        base_end = session.expected_end_time or session.expires_at or timezone.now()
+        session.expected_end_time = base_end + timedelta(seconds=seconds)
+        session.expires_at = session.expected_end_time
+        session.save(update_fields=["expected_end_time", "expires_at", "updated_at"])
+        return
+
+    if session.status == GameSession.Status.PAUSED:
+        remaining = session.remaining_seconds_at_pause or 0
+        session.remaining_seconds_at_pause = remaining + seconds
+        session.save(update_fields=["remaining_seconds_at_pause", "updated_at"])
+        return
+
+    raise ValidationError("Only active or paused sessions can be extended.")
+
+
+@transaction.atomic
+def pause_session(session_id: int) -> GameSession:
+    session = GameSession.objects.select_for_update().select_related("station").get(pk=session_id)
+    if session.status != GameSession.Status.ACTIVE:
+        raise ValidationError("Only active sessions can be paused.")
+
+    now = timezone.now()
+    end = session.expected_end_time or session.expires_at or now
+    remaining = max(0, int((end - now).total_seconds()))
+    session.status = GameSession.Status.PAUSED
+    session.paused_at = now
+    session.remaining_seconds_at_pause = remaining
+    session.save(update_fields=["status", "paused_at", "remaining_seconds_at_pause", "updated_at"])
+    session.station.status = Station.Status.RESERVED
+    session.station.save(update_fields=["status", "updated_at"])
+    queue_deactivate_command(session)
+    _log_event(session, SessionEvent.EventType.PAUSED, "Session paused", {"remaining_seconds": remaining})
+    return session
+
+
+@transaction.atomic
+def resume_session(session_id: int) -> GameSession:
+    session = GameSession.objects.select_for_update().select_related("station").get(pk=session_id)
+    if session.status != GameSession.Status.PAUSED:
+        raise ValidationError("Only paused sessions can be resumed.")
+    session.status = GameSession.Status.ACTIVATION_PENDING
+    session.activation_requested_at = timezone.now()
+    session.save(update_fields=["status", "activation_requested_at", "updated_at"])
+    queue_activate_command(session)
+    _log_event(session, SessionEvent.EventType.RESUMED, "Session resume requested")
+    return session
+
+
+@transaction.atomic
+def create_paid_extension_and_request_payment(
+    *,
+    session_id: int,
+    pricing_plan_id: int | None = None,
+    duration_minutes: int | None = None,
+    amount: Decimal | None = None,
+    customer_phone: str = "",
+    requested_by=None,
+) -> tuple[GameSession, Payment]:
+    session = GameSession.objects.select_for_update().select_related("station").get(pk=session_id)
+    if session.status in _terminal_statuses() or session.status not in _extendable_statuses():
+        raise ValidationError("Only active or paused sessions can be extended.")
+
+    plan = None
+    if pricing_plan_id:
+        try:
+            plan = PricingPlan.objects.select_for_update().get(pk=pricing_plan_id, is_active=True)
+        except PricingPlan.DoesNotExist as exc:
+            raise ValidationError("Pricing plan not found.") from exc
+        duration = plan.package_duration_minutes
+        amount_due = plan.package_price
+    else:
+        duration = int(duration_minutes or 0)
+        if amount is None:
+            raise ValidationError("Amount is required when no pricing plan is selected.")
+        amount_due = Decimal(str(amount)).quantize(Decimal("0.01"))
+
+    if duration <= 0:
+        raise ValidationError("Extension duration must be greater than zero.")
+    if amount_due <= 0:
+        raise ValidationError("Extension amount must be greater than zero.")
+
+    phone = normalize_ke_phone(customer_phone or session.customer_phone)
+    payment = Payment.objects.create(
+        session=session,
+        payment_type=Payment.PaymentType.PAID_EXTEND,
+        extension_duration_minutes=duration,
+        amount_due=amount_due,
+        amount_paid=Decimal("0.00"),
+        status=Payment.Status.PENDING,
+        method=Payment.Method.MPESA,
+        phone_number=phone,
+    )
+
+    request_stk_push(payment=payment, session=session, phone=phone)
+    _log_event(
+        session,
+        SessionEvent.EventType.PAYMENT_INITIATED,
+        "Paid extension STK push initiated",
+        {
+            "payment_id": payment.pk,
+            "duration_minutes": duration,
+            "pricing_plan_id": plan.pk if plan else None,
+            "requested_by_id": getattr(requested_by, "pk", None),
+        },
+    )
+    return session, payment
+
+
+@transaction.atomic
+def manual_extend_session(
+    *,
+    session_id: int,
+    duration_minutes: int,
+    reason: str,
+    performed_by,
+) -> tuple[GameSession, SessionAdjustment]:
+    session = GameSession.objects.select_for_update().get(pk=session_id)
+    if session.status in _terminal_statuses() or session.status not in _extendable_statuses():
+        raise ValidationError("Only active or paused sessions can be extended.")
+    clean_reason = (reason or "").strip()
+    if not clean_reason:
+        raise ValidationError("Reason is required for manual extension.")
+    if int(duration_minutes) <= 0:
+        raise ValidationError("Duration must be greater than zero.")
+
+    _add_duration_to_session(session, int(duration_minutes))
+    adjustment = SessionAdjustment.objects.create(
+        session=session,
+        adjustment_type=SessionAdjustment.AdjustmentType.MANUAL_EXTEND,
+        minutes_added=int(duration_minutes),
+        reason=clean_reason,
+        performed_by=performed_by if getattr(performed_by, "is_authenticated", False) else None,
+    )
+    _log_event(
+        session,
+        SessionEvent.EventType.EXTENDED,
+        "Session manually extended",
+        {
+            "minutes_added": int(duration_minutes),
+            "reason": clean_reason,
+            "performed_by_id": getattr(performed_by, "pk", None),
+        },
+    )
+    return session, adjustment
+
+
+def _apply_paid_extension_if_needed(payment: Payment, session: GameSession) -> bool:
+    if payment.payment_type != Payment.PaymentType.PAID_EXTEND:
+        return False
+    if payment.extension_applied_at is not None:
+        return True
+    duration = payment.extension_duration_minutes or 0
+    _add_duration_to_session(session, duration)
+    payment.extension_applied_at = timezone.now()
+    payment.save(update_fields=["extension_applied_at", "updated_at"])
+    _log_event(
+        session,
+        SessionEvent.EventType.EXTENDED,
+        "Session extended after paid extension payment",
+        {"payment_id": payment.pk, "minutes_added": duration},
+    )
+    return True
 
 
 def _stk_body_dict(body: Any) -> dict[str, Any]:
@@ -391,6 +582,8 @@ def handle_stk_callback(*, raw_body: bytes | str) -> Payment | None:
     paid_statuses = {Payment.Status.PAID, Payment.Status.SUCCESS}
 
     if payment.status in paid_statuses:
+        if payment.payment_type == Payment.PaymentType.PAID_EXTEND and payment.extension_applied_at is None:
+            _apply_paid_extension_if_needed(payment, session)
         logger.info("STK callback ignored: payment already processed checkout_request_id=%s", checkout_id)
         return payment
 
@@ -406,9 +599,13 @@ def handle_stk_callback(*, raw_body: bytes | str) -> Payment | None:
             logger.warning("STK callback ignored: duplicate MpesaReceiptNumber checkout_request_id=%s", checkout_id)
             return existing
 
-    if success and session.status != GameSession.Status.PENDING_PAYMENT:
-        logger.info("STK callback ignored: session is no longer pending payment session_id=%s", session.pk)
-        return payment
+    if success:
+        if payment.payment_type == Payment.PaymentType.SESSION_START and session.status != GameSession.Status.PENDING_PAYMENT:
+            logger.info("STK callback ignored: session is no longer pending payment session_id=%s", session.pk)
+            return payment
+        if payment.payment_type == Payment.PaymentType.PAID_EXTEND and session.status not in _extendable_statuses():
+            logger.info("STK callback ignored: session cannot be extended session_id=%s", session.pk)
+            return payment
 
     if not success:
         cancelled = result_code == "1032"
@@ -418,11 +615,12 @@ def handle_stk_callback(*, raw_body: bytes | str) -> Payment | None:
         payment.save(
             update_fields=["status", "result_code", "result_description", "raw_callback_payload", "updated_at"]
         )
-        session.status = GameSession.Status.CANCELLED if cancelled else GameSession.Status.PAYMENT_FAILED
-        session.save(update_fields=["status", "updated_at"])
-        st = session.station
-        st.status = Station.Status.AVAILABLE
-        st.save(update_fields=["status", "updated_at"])
+        if payment.payment_type == Payment.PaymentType.SESSION_START:
+            session.status = GameSession.Status.CANCELLED if cancelled else GameSession.Status.PAYMENT_FAILED
+            session.save(update_fields=["status", "updated_at"])
+            st = session.station
+            st.status = Station.Status.AVAILABLE
+            st.save(update_fields=["status", "updated_at"])
         _log_event(session, SessionEvent.EventType.PAYMENT_FAILED, "STK payment failed", {"result_code": result_code})
         return payment
 
@@ -445,11 +643,12 @@ def handle_stk_callback(*, raw_body: bytes | str) -> Payment | None:
                 "updated_at",
             ]
         )
-        session.status = GameSession.Status.PAYMENT_FAILED
-        session.save(update_fields=["status", "updated_at"])
-        st = session.station
-        st.status = Station.Status.AVAILABLE
-        st.save(update_fields=["status", "updated_at"])
+        if payment.payment_type == Payment.PaymentType.SESSION_START:
+            session.status = GameSession.Status.PAYMENT_FAILED
+            session.save(update_fields=["status", "updated_at"])
+            st = session.station
+            st.status = Station.Status.AVAILABLE
+            st.save(update_fields=["status", "updated_at"])
         _log_event(
             session,
             SessionEvent.EventType.PAYMENT_FAILED,
@@ -486,6 +685,11 @@ def handle_stk_callback(*, raw_body: bytes | str) -> Payment | None:
             "updated_at",
         ]
     )
+
+    if payment.payment_type == Payment.PaymentType.PAID_EXTEND:
+        _apply_paid_extension_if_needed(payment, session)
+        _log_event(session, SessionEvent.EventType.PAYMENT_SUCCESS, "Paid extension payment confirmed", {"receipt": receipt})
+        return payment
 
     session.status = GameSession.Status.ACTIVATION_PENDING
     session.paid_at = now
@@ -573,11 +777,18 @@ def reconcile_session_device_command(cmd: DeviceCommand) -> None:
     if cmd.command == DeviceCommand.CommandType.ACTIVATE:
         if session.status != GameSession.Status.ACTIVATION_PENDING:
             return
+        paused_remaining = session.remaining_seconds_at_pause
         duration = session.duration_minutes_snapshot or 0
         session.status = GameSession.Status.ACTIVE
-        session.start_time = now
+        if session.start_time is None:
+            session.start_time = now
         session.device_activated_at = now
-        session.expected_end_time = now + timedelta(minutes=duration)
+        if paused_remaining is not None:
+            session.expected_end_time = now + timedelta(seconds=paused_remaining)
+            session.remaining_seconds_at_pause = None
+            session.paused_at = None
+        else:
+            session.expected_end_time = now + timedelta(minutes=duration)
         session.expires_at = session.expected_end_time
         session.save(
             update_fields=[
@@ -586,6 +797,8 @@ def reconcile_session_device_command(cmd: DeviceCommand) -> None:
                 "device_activated_at",
                 "expected_end_time",
                 "expires_at",
+                "paused_at",
+                "remaining_seconds_at_pause",
                 "updated_at",
             ]
         )
@@ -595,6 +808,14 @@ def reconcile_session_device_command(cmd: DeviceCommand) -> None:
         return
 
     if cmd.command == DeviceCommand.CommandType.DEACTIVATE:
+        if session.status == GameSession.Status.PAUSED:
+            session.device_deactivated_at = now
+            session.save(update_fields=["device_deactivated_at", "updated_at"])
+            station.status = Station.Status.RESERVED
+            station.save(update_fields=["status", "updated_at"])
+            _log_event(session, SessionEvent.EventType.DEACTIVATED, "Session paused after deactivation", {"command_id": cmd.pk})
+            return
+
         if session.status not in (GameSession.Status.EXPIRED, GameSession.Status.ACTIVE):
             return
         session.status = GameSession.Status.COMPLETED

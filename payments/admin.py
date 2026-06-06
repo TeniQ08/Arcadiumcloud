@@ -10,12 +10,14 @@ class PaymentAdmin(admin.ModelAdmin):
         "amount_due",
         "amount_paid",
         "status",
+        "payment_type",
+        "extension_duration_minutes",
         "method",
         "checkout_request_id",
         "response_code",
         "paid_at",
     )
-    list_filter = ("status", "method")
+    list_filter = ("status", "payment_type", "method")
     search_fields = (
         "checkout_request_id",
         "merchant_request_id",

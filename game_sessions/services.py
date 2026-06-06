@@ -10,6 +10,7 @@ def _blocking_statuses() -> tuple[str, ...]:
         GameSession.Status.PENDING_PAYMENT,
         GameSession.Status.ACTIVATION_PENDING,
         GameSession.Status.ACTIVE,
+        GameSession.Status.PAUSED,
         GameSession.Status.EXPIRED,
     )
 

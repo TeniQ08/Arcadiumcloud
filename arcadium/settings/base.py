@@ -105,3 +105,4 @@ MPESA_SHORTCODE = os.environ.get("MPESA_SHORTCODE", "")
 MPESA_PASSKEY = os.environ.get("MPESA_PASSKEY", "")
 MPESA_CALLBACK_URL = os.environ.get("MPESA_CALLBACK_URL", "")
 MPESA_TRANSACTION_TYPE = os.environ.get("MPESA_TRANSACTION_TYPE", "CustomerPayBillOnline")
+ALLOW_CASHIER_MANUAL_EXTEND = os.environ.get("ALLOW_CASHIER_MANUAL_EXTEND", "False") == "True"
