@@ -311,7 +311,7 @@
       text-transform: uppercase;
       letter-spacing: .04em;
     }
-    .modal-panel input, .modal-panel select{
+    .modal-panel input, .modal-panel select, .modal-panel textarea{
       width:100%;
       padding:8px 10px;
       border-radius:10px;
@@ -319,6 +319,10 @@
       background: rgba(2,6,23,.5);
       color: var(--text);
       font-size: 14px;
+    }
+    .modal-panel textarea{
+      min-height: 86px;
+      resize: vertical;
     }
     .modal-actions{
       display:flex;
@@ -388,6 +392,38 @@
     </div>
   </div>
 
+  <div id="paidExtendModal" class="modal-backdrop" aria-hidden="true">
+    <div class="modal-panel" role="dialog" aria-labelledby="paidExtendModalTitle">
+      <h3 id="paidExtendModalTitle">Paid extend - M-Pesa STK</h3>
+      <div id="paidExtendSessionLabel" class="muted"></div>
+      <label for="paidExtendPlanSelect">Extension package</label>
+      <select id="paidExtendPlanSelect"></select>
+      <label for="paidExtendPhone">Customer phone (optional)</label>
+      <input id="paidExtendPhone" type="tel" autocomplete="tel" placeholder="Leave blank to use session phone" />
+      <input type="hidden" id="paidExtendSessionId" value="" />
+      <div class="modal-actions">
+        <button type="button" id="paidExtendCancel" class="btn">Cancel</button>
+        <button type="button" id="paidExtendSubmit" class="btn primary">Request extension STK</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="manualExtendModal" class="modal-backdrop" aria-hidden="true">
+    <div class="modal-panel" role="dialog" aria-labelledby="manualExtendModalTitle">
+      <h3 id="manualExtendModalTitle">Manual extend</h3>
+      <div id="manualExtendSessionLabel" class="muted"></div>
+      <label for="manualExtendMinutes">Duration minutes</label>
+      <input id="manualExtendMinutes" type="number" min="1" step="1" placeholder="e.g. 15" />
+      <label for="manualExtendReason">Reason</label>
+      <textarea id="manualExtendReason" placeholder="Required"></textarea>
+      <input type="hidden" id="manualExtendSessionId" value="" />
+      <div class="modal-actions">
+        <button type="button" id="manualExtendCancel" class="btn">Cancel</button>
+        <button type="button" id="manualExtendSubmit" class="btn primary">Apply manual extend</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     const sessionsByStationId = new Map();
     let isLoading = false;
@@ -401,6 +437,7 @@
       payment_failed: 'Payment failed',
       activation_pending: 'Activation pending',
       active: 'Active',
+      paused: 'Paused',
       expired: 'Expired',
       completed: 'Completed',
       cancelled: 'Cancelled',
@@ -482,6 +519,7 @@
       if (!session) return 'expired';
       const r = session.status;
       if (r === 'active') return 'active';
+      if (r === 'paused') return 'reserved';
       if (r === 'expired') return 'expired';
       if (r === 'pending_payment' || r === 'activation_pending') return 'awaiting';
       if (r === 'payment_failed' || r === 'activation_failed' || r === 'cancelled' || r === 'completed') return 'expired';
@@ -528,6 +566,13 @@
       const mins = Math.floor(totalSeconds / 60);
       const secs = totalSeconds % 60;
       return `${sign}${mins}m ${secs}s`;
+    }
+
+    function formatSeconds(totalSeconds) {
+      const secsNum = Math.max(0, Number(totalSeconds || 0));
+      const mins = Math.floor(secsNum / 60);
+      const secs = secsNum % 60;
+      return `${mins}m ${secs}s`;
     }
 
     function updateCountdowns() {
@@ -612,6 +657,20 @@
       };
     }
 
+    function populatePlanSelect(selectId) {
+      const sel = document.getElementById(selectId);
+      if (!sel) return;
+      sel.innerHTML = '';
+      for (const p of prepaidPlans) {
+        const opt = document.createElement('option');
+        opt.value = String(p.id);
+        const dur = p.package_duration_minutes != null ? p.package_duration_minutes + ' min' : '';
+        const price = p.package_price != null ? p.package_price + ' KSh' : '';
+        opt.textContent = `${p.name} (${dur} - ${price})`;
+        sel.appendChild(opt);
+      }
+    }
+
     function openPrepaidModal(stationId) {
       document.getElementById('prepaidStationId').value = String(stationId);
       document.getElementById('prepaidPhone').value = '';
@@ -631,6 +690,38 @@
 
     function closePrepaidModal() {
       const m = document.getElementById('prepaidModal');
+      m.classList.remove('open');
+      m.setAttribute('aria-hidden', 'true');
+    }
+
+    function openPaidExtendModal(session) {
+      document.getElementById('paidExtendSessionId').value = String(session.id);
+      document.getElementById('paidExtendPhone').value = '';
+      document.getElementById('paidExtendSessionLabel').textContent = `Session #${session.id} - ${labelSessionStatus(session.status)}`;
+      populatePlanSelect('paidExtendPlanSelect');
+      const m = document.getElementById('paidExtendModal');
+      m.classList.add('open');
+      m.setAttribute('aria-hidden', 'false');
+    }
+
+    function closePaidExtendModal() {
+      const m = document.getElementById('paidExtendModal');
+      m.classList.remove('open');
+      m.setAttribute('aria-hidden', 'true');
+    }
+
+    function openManualExtendModal(session) {
+      document.getElementById('manualExtendSessionId').value = String(session.id);
+      document.getElementById('manualExtendMinutes').value = '';
+      document.getElementById('manualExtendReason').value = '';
+      document.getElementById('manualExtendSessionLabel').textContent = `Session #${session.id} - ${labelSessionStatus(session.status)}`;
+      const m = document.getElementById('manualExtendModal');
+      m.classList.add('open');
+      m.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeManualExtendModal() {
+      const m = document.getElementById('manualExtendModal');
       m.classList.remove('open');
       m.setAttribute('aria-hidden', 'true');
     }
@@ -658,12 +749,15 @@
         const raw = stationRaw(st);
         const sessStatus = session ? session.status : null;
         const sessEndIso = session ? (session.expires_at || session.expected_end_time || '') : '';
-        const remaining = session ? formatRemaining(sessEndIso) : '';
+        const remaining = session
+          ? (session.status === 'paused' ? formatSeconds(session.remaining_seconds_at_pause) : formatRemaining(sessEndIso))
+          : '';
 
         if (raw === 'maintenance' || raw === 'offline') div.classList.add('accent-maintenance');
         else if (st.device && st.device.status === 'fault') div.classList.add('accent-device-fault');
         else if (raw === 'reserved') div.classList.add('accent-reserved');
         else if (sessStatus === 'active') div.classList.add('accent-active');
+        else if (sessStatus === 'paused') div.classList.add('accent-reserved');
         else if (sessStatus === 'pending_payment' || sessStatus === 'activation_pending') div.classList.add('accent-awaiting');
         else if (sessStatus === 'expired') div.classList.add('accent-expired');
         else if (!session && raw === 'available') div.classList.add('accent-available');
@@ -711,7 +805,7 @@
                   <span class="kbd">#${session.id}</span>
                   ${sessionBadge}
                 </div>
-                <div class="muted" data-expected-end="${sessEndIso || ''}">${remaining ? `Remaining: ${remaining}` : ''}</div>
+                <div class="muted" ${session.status === 'paused' ? '' : `data-expected-end="${sessEndIso || ''}"`}>${remaining ? `${session.status === 'paused' ? 'Paused remaining' : 'Remaining'}: ${remaining}` : ''}</div>
               </div>
               <div class="session-kind">Pay-before-play (STK)</div>
               <div class="muted" style="margin-top:6px;">
@@ -757,6 +851,70 @@
         const group = document.createElement('div');
         group.className = 'btn-group';
         group.appendChild(btnPrepaid);
+
+        const canPause = session && session.status === 'active';
+        const btnPause = document.createElement('button');
+        btnPause.type = 'button';
+        btnPause.className = 'btn';
+        btnPause.textContent = 'Pause';
+        btnPause.disabled = isLoading || !canPause;
+        btnPause.onclick = async (e) => {
+          if (!session || !canPause) return;
+          try {
+            await disableWhile(e.currentTarget, (async () => {
+              await apiPost('/api/sessions/' + session.id + '/pause/', {});
+              showMessage('success', 'Pause command queued.');
+              await loadData();
+            })());
+          } catch (err) {
+            showMessage('error', formatError(err));
+          }
+        };
+
+        const canResume = session && session.status === 'paused';
+        const btnResume = document.createElement('button');
+        btnResume.type = 'button';
+        btnResume.className = 'btn primary';
+        btnResume.textContent = 'Resume';
+        btnResume.disabled = isLoading || !canResume;
+        btnResume.onclick = async (e) => {
+          if (!session || !canResume) return;
+          try {
+            await disableWhile(e.currentTarget, (async () => {
+              await apiPost('/api/sessions/' + session.id + '/resume/', {});
+              showMessage('success', 'Resume command queued.');
+              await loadData();
+            })());
+          } catch (err) {
+            showMessage('error', formatError(err));
+          }
+        };
+
+        const canExtend = session && ['active', 'paused'].includes(session.status);
+        const btnPaidExtend = document.createElement('button');
+        btnPaidExtend.type = 'button';
+        btnPaidExtend.className = 'btn primary';
+        btnPaidExtend.textContent = 'Paid extend';
+        btnPaidExtend.disabled = isLoading || !canExtend;
+        btnPaidExtend.onclick = () => {
+          if (!session || !canExtend) return;
+          openPaidExtendModal(session);
+        };
+
+        const btnManualExtend = document.createElement('button');
+        btnManualExtend.type = 'button';
+        btnManualExtend.className = 'btn';
+        btnManualExtend.textContent = 'Manual extend';
+        btnManualExtend.disabled = isLoading || !canExtend;
+        btnManualExtend.onclick = () => {
+          if (!session || !canExtend) return;
+          openManualExtendModal(session);
+        };
+
+        group.appendChild(btnPause);
+        group.appendChild(btnResume);
+        group.appendChild(btnPaidExtend);
+        group.appendChild(btnManualExtend);
         group.appendChild(btnCancel);
         div.appendChild(group);
 
@@ -888,6 +1046,73 @@
     document.getElementById('prepaidCancel').addEventListener('click', closePrepaidModal);
     document.getElementById('prepaidModal').addEventListener('click', (e) => {
       if (e.target.id === 'prepaidModal') closePrepaidModal();
+    });
+
+    document.getElementById('paidExtendSubmit').addEventListener('click', async () => {
+      const sessionId = parseInt(document.getElementById('paidExtendSessionId').value, 10);
+      const planId = parseInt(document.getElementById('paidExtendPlanSelect').value, 10);
+      const phone = (document.getElementById('paidExtendPhone').value || '').trim();
+      if (!sessionId || !Number.isFinite(sessionId)) {
+        showMessage('error', 'No session selected for paid extension.');
+        return;
+      }
+      if (!planId || !Number.isFinite(planId)) {
+        showMessage('error', 'Select an extension package.');
+        return;
+      }
+      const btn = document.getElementById('paidExtendSubmit');
+      try {
+        await disableWhile(btn, (async () => {
+          const payload = { pricing_plan_id: planId };
+          if (phone) payload.customer_phone = phone;
+          await apiPost('/api/sessions/' + sessionId + '/paid-extend/', payload);
+          showMessage('success', 'Extension STK request sent. Time will be added after payment confirmation.');
+          closePaidExtendModal();
+          await loadData();
+        })());
+      } catch (err) {
+        showMessage('error', formatError(err));
+      }
+    });
+    document.getElementById('paidExtendCancel').addEventListener('click', closePaidExtendModal);
+    document.getElementById('paidExtendModal').addEventListener('click', (e) => {
+      if (e.target.id === 'paidExtendModal') closePaidExtendModal();
+    });
+
+    document.getElementById('manualExtendSubmit').addEventListener('click', async () => {
+      const sessionId = parseInt(document.getElementById('manualExtendSessionId').value, 10);
+      const duration = parseInt(document.getElementById('manualExtendMinutes').value, 10);
+      const reason = (document.getElementById('manualExtendReason').value || '').trim();
+      if (!sessionId || !Number.isFinite(sessionId)) {
+        showMessage('error', 'No session selected for manual extension.');
+        return;
+      }
+      if (!duration || duration <= 0) {
+        showMessage('error', 'Duration minutes must be greater than zero.');
+        return;
+      }
+      if (!reason) {
+        showMessage('error', 'Reason is required for manual extension.');
+        return;
+      }
+      const btn = document.getElementById('manualExtendSubmit');
+      try {
+        await disableWhile(btn, (async () => {
+          await apiPost('/api/sessions/' + sessionId + '/manual-extend/', {
+            duration_minutes: duration,
+            reason,
+          });
+          showMessage('success', 'Session manually extended.');
+          closeManualExtendModal();
+          await loadData();
+        })());
+      } catch (err) {
+        showMessage('error', formatError(err));
+      }
+    });
+    document.getElementById('manualExtendCancel').addEventListener('click', closeManualExtendModal);
+    document.getElementById('manualExtendModal').addEventListener('click', (e) => {
+      if (e.target.id === 'manualExtendModal') closeManualExtendModal();
     });
     // Ensure initial load runs after DOM is ready
     if (document.readyState === 'loading') {
