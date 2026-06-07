@@ -4,6 +4,14 @@ import { Container } from "./container";
 import { SectionHeading } from "./section-heading";
 import { Card, IconBadge, Reveal, SimpleIcon } from "./ui";
 
+type IconTone = NonNullable<Parameters<typeof IconBadge>[0]["tone"]>;
+type Pillar = {
+  title: string;
+  desc: string;
+  icon: string;
+  tone: IconTone;
+};
+
 const pillars = [
   {
     title: "Automate operations",
@@ -23,7 +31,7 @@ const pillars = [
     icon: "radar",
     tone: "violet"
   }
-] as const;
+] satisfies readonly Pillar[];
 
 export function Solution() {
   return (
@@ -44,7 +52,7 @@ export function Solution() {
                 <Card className="p-5">
                   <div className="flex items-start gap-4">
                     <IconBadge
-                      tone={p.tone as any}
+                      tone={p.tone}
                       icon={<SimpleIcon name={p.icon} />}
                     />
                     <div>

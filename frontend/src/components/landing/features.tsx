@@ -4,6 +4,14 @@ import { Container } from "./container";
 import { SectionHeading } from "./section-heading";
 import { Card, IconBadge, Reveal, SimpleIcon } from "./ui";
 
+type IconTone = NonNullable<Parameters<typeof IconBadge>[0]["tone"]>;
+type Feature = {
+  title: string;
+  desc: string;
+  icon: string;
+  tone: IconTone;
+};
+
 const features = [
   {
     title: "Prepaid gaming sessions",
@@ -53,7 +61,7 @@ const features = [
     icon: "scale",
     tone: "blue"
   }
-] as const;
+] satisfies readonly Feature[];
 
 export function Features() {
   return (
@@ -73,7 +81,7 @@ export function Features() {
               <Card className="h-full p-5">
                 <div className="flex items-start gap-4">
                   <IconBadge
-                    tone={f.tone as any}
+                    tone={f.tone}
                     icon={<SimpleIcon name={f.icon} />}
                   />
                   <div>
