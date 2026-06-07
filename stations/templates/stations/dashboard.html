@@ -94,10 +94,18 @@
     .btn.danger{ background: rgba(239,68,68,.14); border-color: rgba(239,68,68,.35); }
     .btn:disabled{ opacity: .55; cursor: not-allowed; }
 
-    .container{
-      max-width: 1200px;
+    .dashboard-layout{
+      max-width: 1500px;
       margin: 0 auto;
       padding: 18px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 16px;
+      align-items: start;
+    }
+
+    .container{
+      min-width: 0;
     }
 
     .stats{
@@ -121,7 +129,37 @@
       display:flex;
       flex-direction: column;
       gap: 8px;
-      margin: 12px 0;
+      max-height: calc(100vh - 156px);
+      overflow-y: auto;
+      padding-right: 2px;
+    }
+    .notifications-pane{
+      position: sticky;
+      top: 82px;
+      background: rgba(17,28,51,.65);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      padding: 12px;
+    }
+    .notifications-header{
+      display:flex;
+      align-items:center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .notifications-header h2{
+      margin:0;
+      font-size: 13px;
+      font-weight: 900;
+      letter-spacing: .2px;
+    }
+    .notifications-header .hint{
+      color: var(--muted);
+      font-size: 11px;
     }
     .alert{
       border: 1px solid var(--border);
@@ -156,6 +194,12 @@
     }
     @media (max-width: 1100px){
       .grid{ grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .dashboard-layout{ grid-template-columns: 1fr; }
+      .notifications-pane{
+        position: static;
+        order: -1;
+      }
+      .messages{ max-height: 220px; }
     }
     @media (max-width: 700px){
       .grid{ grid-template-columns: 1fr; }
@@ -356,23 +400,31 @@
     </div>
   </header>
 
-  <main class="container">
-    <section class="stats" aria-label="Summary">
-      <div class="stat"><div class="label">Total stations</div><div id="statTotalStations" class="value">—</div></div>
-      <div class="stat"><div class="label">Active sessions</div><div id="statActiveSessions" class="value">—</div></div>
-      <div class="stat"><div class="label">Before play (payment / activation)</div><div id="statBeforePlay" class="value">—</div></div>
-      <div class="stat"><div class="label">Available stations</div><div id="statAvailableStations" class="value">—</div></div>
-      <div class="stat"><div class="label">Devices online</div><div id="statDevicesOnline" class="value">—</div></div>
-      <div class="stat"><div class="label">Devices offline</div><div id="statDevicesOffline" class="value">—</div></div>
-      <div class="stat"><div class="label">Devices fault</div><div id="statDevicesFault" class="value">—</div></div>
-    </section>
+  <div class="dashboard-layout">
+    <main class="container">
+      <section class="stats" aria-label="Summary">
+        <div class="stat"><div class="label">Total stations</div><div id="statTotalStations" class="value">—</div></div>
+        <div class="stat"><div class="label">Active sessions</div><div id="statActiveSessions" class="value">—</div></div>
+        <div class="stat"><div class="label">Before play (payment / activation)</div><div id="statBeforePlay" class="value">—</div></div>
+        <div class="stat"><div class="label">Available stations</div><div id="statAvailableStations" class="value">—</div></div>
+        <div class="stat"><div class="label">Devices online</div><div id="statDevicesOnline" class="value">—</div></div>
+        <div class="stat"><div class="label">Devices offline</div><div id="statDevicesOffline" class="value">—</div></div>
+        <div class="stat"><div class="label">Devices fault</div><div id="statDevicesFault" class="value">—</div></div>
+      </section>
 
-    <section class="messages" id="messages" aria-label="Messages"></section>
+      <section id="stations" class="grid" aria-label="Stations">
+        <div class="empty" id="loadingState">Loading stations…</div>
+      </section>
+    </main>
 
-    <section id="stations" class="grid" aria-label="Stations">
-      <div class="empty" id="loadingState">Loading stations…</div>
-    </section>
-  </main>
+    <aside class="notifications-pane" aria-label="Notifications">
+      <div class="notifications-header">
+        <h2>Notifications</h2>
+        <span class="hint">Latest first</span>
+      </div>
+      <section class="messages" id="messages" aria-label="Messages"></section>
+    </aside>
+  </div>
 
   <div id="prepaidModal" class="modal-backdrop" aria-hidden="true">
     <div class="modal-panel" role="dialog" aria-labelledby="prepaidModalTitle">
