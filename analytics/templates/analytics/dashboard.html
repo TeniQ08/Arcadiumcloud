@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Arcadium Analytics</title>
+  <style>
+    :root{
+      --bg:#0b1020;
+      --panel:#0f172a;
+      --card:#111c33;
+      --muted:#94a3b8;
+      --text:#e5e7eb;
+      --border:rgba(148,163,184,.18);
+      --shadow:0 10px 24px rgba(0,0,0,.35);
+      --accent:#60a5fa;
+      --green:#22c55e;
+      --orange:#f59e0b;
+      --red:#ef4444;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+      background:radial-gradient(1100px 420px at 18% 0%,rgba(96,165,250,.14),transparent 62%),
+                 radial-gradient(900px 400px at 86% 4%,rgba(34,197,94,.09),transparent 58%),
+                 var(--bg);
+      color:var(--text);
+    }
+    a{color:var(--accent);text-decoration:none}
+    a:hover{text-decoration:underline}
+    .topbar{
+      position:sticky;
+      top:0;
+      z-index:10;
+      background:rgba(15,23,42,.86);
+      backdrop-filter:blur(10px);
+      border-bottom:1px solid var(--border);
+    }
+    .topbar-inner,.container{
+      max-width:1200px;
+      margin:0 auto;
+      padding:14px 18px;
+    }
+    .topbar-inner{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+    }
+    h1{font-size:16px;margin:0;font-weight:900}
+    .user{font-size:12px;color:var(--muted);margin-top:2px}
+    .actions,.tabs{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .btn,.tab{
+      appearance:none;
+      border:1px solid var(--border);
+      background:rgba(17,28,51,.85);
+      color:var(--text);
+      padding:8px 10px;
+      border-radius:10px;
+      cursor:pointer;
+      font-weight:700;
+      font-size:13px;
+    }
+    .btn:hover,.tab:hover{border-color:rgba(96,165,250,.45)}
+    .tab.active{background:rgba(59,130,246,.18);border-color:rgba(59,130,246,.4)}
+    .stats{
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+      gap:12px;
+      margin:14px 0;
+    }
+    .stat,.panel{
+      background:rgba(17,28,51,.66);
+      border:1px solid var(--border);
+      border-radius:14px;
+      box-shadow:var(--shadow);
+    }
+    .stat{padding:12px}
+    .stat .label{color:var(--muted);font-size:12px}
+    .stat .value{font-size:22px;font-weight:900;margin-top:6px}
+    .panel{padding:14px;margin-bottom:14px}
+    .panel-header{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      margin-bottom:12px;
+      flex-wrap:wrap;
+    }
+    h2{font-size:15px;margin:0;font-weight:900}
+    .muted{color:var(--muted);font-size:12px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    @media (max-width:850px){.grid{grid-template-columns:1fr}}
+    table{width:100%;border-collapse:collapse;font-size:13px}
+    th,td{padding:9px 8px;border-bottom:1px solid var(--border);text-align:left}
+    th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+    td:last-child,th:last-child{text-align:right}
+    .bar-list{display:flex;flex-direction:column;gap:9px}
+    .bar-row{display:grid;grid-template-columns:90px 1fr 80px;align-items:center;gap:10px;font-size:12px}
+    .bar-track{height:10px;border-radius:999px;background:rgba(2,6,23,.55);overflow:hidden;border:1px solid var(--border)}
+    .bar-fill{height:100%;border-radius:999px;background:linear-gradient(90deg,#60a5fa,#22c55e)}
+    .heatmap{
+      display:grid;
+      grid-template-columns:repeat(6,1fr);
+      gap:8px;
+    }
+    @media (max-width:650px){.heatmap{grid-template-columns:repeat(3,1fr)}}
+    .hour{
+      min-height:78px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:rgba(2,6,23,.35);
+      padding:8px;
+    }
+    .hour .h{font-weight:900;font-size:13px}
+    .hour .m{color:var(--muted);font-size:11px;margin-top:5px;line-height:1.35}
+    .hidden{display:none}
+    .error{
+      border-color:rgba(239,68,68,.42);
+      background:rgba(239,68,68,.12);
+      padding:10px 12px;
+      border-radius:12px;
+      margin:12px 0;
+      color:#fecaca;
+      display:none;
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div>
+        <h1>Arcadium Analytics</h1>
+        <div class="user">{{ request.user.get_full_name|default:request.user.username }} ({{ request.user.role }})</div>
+      </div>
+      <div class="actions">
+        <button id="refreshBtn" class="btn" type="button">Refresh</button>
+        <a class="btn" href="/">Control Panel</a>
+        <a class="btn" href="/admin/" target="_blank" rel="noreferrer">Admin</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <nav class="tabs" aria-label="Analytics sections">
+      <button class="tab active" type="button" data-view="revenue">Revenue</button>
+      <button class="tab" type="button" data-view="stations">Stations</button>
+      <button class="tab" type="button" data-view="occupancy">Occupancy</button>
+      <button class="tab" type="button" data-view="peak">Peak Hours</button>
+    </nav>
+
+    <div id="error" class="error"></div>
+
+    <section id="view-revenue">
+      <div class="stats">
+        <div class="stat"><div class="label">Today revenue</div><div id="todayRevenue" class="value">-</div></div>
+        <div class="stat"><div class="label">This week</div><div id="weekRevenue" class="value">-</div></div>
+        <div class="stat"><div class="label">This month</div><div id="monthRevenue" class="value">-</div></div>
+        <div class="stat"><div class="label">Paid sessions</div><div id="paidSessions" class="value">-</div></div>
+      </div>
+      <div class="grid">
+        <div class="panel">
+          <div class="panel-header"><h2>Revenue by Station</h2></div>
+          <div id="stationRevenueBars" class="bar-list"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><h2>Revenue by Package</h2></div>
+          <div id="packageRevenueBars" class="bar-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-stations" class="hidden">
+      <div class="panel">
+        <div class="panel-header"><h2>Station Performance</h2><span class="muted">Utilization uses this month's elapsed minutes.</span></div>
+        <table>
+          <thead><tr><th>Station</th><th>Sessions</th><th>Used minutes</th><th>Utilization</th><th>Revenue</th></tr></thead>
+          <tbody id="stationPerformanceRows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="view-occupancy" class="hidden">
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Occupancy</h2>
+          <div class="tabs">
+            <button id="dailyBtn" class="tab active" type="button">Daily</button>
+            <button id="weeklyBtn" class="tab" type="button">Weekly</button>
+          </div>
+        </div>
+        <div class="stats">
+          <div class="stat"><div class="label">Used minutes</div><div id="occupancyUsed" class="value">-</div></div>
+          <div class="stat"><div class="label">Available minutes</div><div id="occupancyAvailable" class="value">-</div></div>
+          <div class="stat"><div class="label">Occupancy</div><div id="occupancyPct" class="value">-</div></div>
+        </div>
+        <div id="occupancyBars" class="bar-list"></div>
+      </div>
+    </section>
+
+    <section id="view-peak" class="hidden">
+      <div class="panel">
+        <div class="panel-header"><h2>Peak Hours Heat Map</h2><span class="muted">Grouped by payment hour.</span></div>
+        <div id="peakHeatmap" class="heatmap"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    let occupancyView = 'daily';
+
+    function money(value) {
+      const n = Number(value || 0);
+      return `${n.toLocaleString()} KSh`;
+    }
+    function pct(value) {
+      return `${Number(value || 0).toFixed(1)}%`;
+    }
+    function showError(message) {
+      const el = document.getElementById('error');
+      el.textContent = message;
+      el.style.display = message ? 'block' : 'none';
+    }
+    async function apiGet(url) {
+      const response = await fetch(url, {credentials:'same-origin', headers:{Accept:'application/json'}});
+      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+      return response.json();
+    }
+    function renderBars(rootId, rows, labelKey, valueKey, valueFormatter) {
+      const root = document.getElementById(rootId);
+      root.innerHTML = '';
+      const max = Math.max(...rows.map((row) => Number(row[valueKey] || 0)), 1);
+      if (!rows.length) {
+        root.innerHTML = '<div class="muted">No paid sessions yet.</div>';
+        return;
+      }
+      for (const row of rows) {
+        const value = Number(row[valueKey] || 0);
+        const div = document.createElement('div');
+        div.className = 'bar-row';
+        div.innerHTML = `
+          <div>${row[labelKey] || '-'}</div>
+          <div class="bar-track"><div class="bar-fill" style="width:${Math.max(3, (value / max) * 100)}%"></div></div>
+          <div style="text-align:right">${valueFormatter(value)}</div>
+        `;
+        root.appendChild(div);
+      }
+    }
+    function renderStationPerformance(rows) {
+      const root = document.getElementById('stationPerformanceRows');
+      root.innerHTML = '';
+      if (!rows.length) {
+        root.innerHTML = '<tr><td colspan="5" class="muted">No stations found.</td></tr>';
+        return;
+      }
+      for (const row of rows) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${row.station_name}</td>
+          <td>${row.total_sessions}</td>
+          <td>${row.total_used_minutes}</td>
+          <td>${pct(row.utilization_percentage)}</td>
+          <td>${money(row.total_revenue)}</td>
+        `;
+        root.appendChild(tr);
+      }
+    }
+    function renderOccupancy(data) {
+      document.getElementById('occupancyUsed').textContent = String(data.total_used_minutes || 0);
+      document.getElementById('occupancyAvailable').textContent = String(data.total_available_minutes || 0);
+      document.getElementById('occupancyPct').textContent = pct(data.occupancy_percentage);
+      renderBars('occupancyBars', data.buckets || [], 'date', 'occupancy_percentage', pct);
+    }
+    function renderPeakHours(rows) {
+      const root = document.getElementById('peakHeatmap');
+      root.innerHTML = '';
+      const max = Math.max(...rows.map((row) => Number(row.sessions_count || 0)), 1);
+      for (const row of rows) {
+        const intensity = Number(row.sessions_count || 0) / max;
+        const div = document.createElement('div');
+        div.className = 'hour';
+        div.style.background = `rgba(96,165,250,${0.08 + intensity * 0.34})`;
+        div.innerHTML = `
+          <div class="h">${String(row.hour).padStart(2, '0')}:00</div>
+          <div class="m">${row.sessions_count} sessions<br>${money(row.revenue)}<br>${row.used_minutes} min</div>
+        `;
+        root.appendChild(div);
+      }
+    }
+    async function loadAnalytics() {
+      showError('');
+      document.getElementById('refreshBtn').disabled = true;
+      try {
+        const [summary, stationRevenue, packageRevenue, performance, occupancy, peak] = await Promise.all([
+          apiGet('/api/analytics/revenue/summary/'),
+          apiGet('/api/analytics/revenue/by-station/'),
+          apiGet('/api/analytics/revenue/by-package/'),
+          apiGet('/api/analytics/stations/performance/'),
+          apiGet('/api/analytics/occupancy/?view=' + occupancyView),
+          apiGet('/api/analytics/peak-hours/'),
+        ]);
+        document.getElementById('todayRevenue').textContent = money(summary.today_revenue);
+        document.getElementById('weekRevenue').textContent = money(summary.this_week_revenue);
+        document.getElementById('monthRevenue').textContent = money(summary.this_month_revenue);
+        document.getElementById('paidSessions').textContent = String(summary.paid_sessions || 0);
+        renderBars('stationRevenueBars', stationRevenue, 'station_name', 'total_revenue', money);
+        renderBars('packageRevenueBars', packageRevenue, 'package_name', 'total_revenue', money);
+        renderStationPerformance(performance);
+        renderOccupancy(occupancy);
+        renderPeakHours(peak);
+      } catch (err) {
+        showError(`Failed to load analytics: ${err.message || err}`);
+      } finally {
+        document.getElementById('refreshBtn').disabled = false;
+      }
+    }
+    document.querySelectorAll('button[data-view]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('button[data-view]').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        document.querySelectorAll('main section[id^="view-"]').forEach((section) => section.classList.add('hidden'));
+        document.getElementById('view-' + btn.dataset.view).classList.remove('hidden');
+      });
+    });
+    document.getElementById('dailyBtn').addEventListener('click', () => {
+      occupancyView = 'daily';
+      document.getElementById('dailyBtn').classList.add('active');
+      document.getElementById('weeklyBtn').classList.remove('active');
+      loadAnalytics();
+    });
+    document.getElementById('weeklyBtn').addEventListener('click', () => {
+      occupancyView = 'weekly';
+      document.getElementById('weeklyBtn').classList.add('active');
+      document.getElementById('dailyBtn').classList.remove('active');
+      loadAnalytics();
+    });
+    document.getElementById('refreshBtn').addEventListener('click', loadAnalytics);
+    loadAnalytics();
+  </script>
+</body>
+</html>

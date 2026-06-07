@@ -12,5 +12,6 @@ urlpatterns = [
     path("api/", include("game_sessions.urls")),
     path("api/", include("payments.urls")),
     path("api/", include("devices.urls")),
+    path("", include("analytics.urls")),
     path("admin/", admin.site.urls),
 ]
