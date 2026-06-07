@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
+import arcadiumLogo from "../../../public/arcadium-logo.png";
 import { Container } from "./container";
 import { Button } from "./ui";
 
@@ -43,10 +44,8 @@ export function Navbar() {
         <div className="flex items-center justify-between">
           <a href="#" className="group inline-flex items-center gap-2">
             <Image
-              src="/arcadium-logo.png"
+              src={arcadiumLogo}
               alt="Arcadium logo"
-              width={40}
-              height={40}
               className="h-10 w-10 rounded-2xl border border-white/10 bg-white object-cover shadow-glow"
             />
             <span className="text-sm font-semibold tracking-tight text-arc-text">
