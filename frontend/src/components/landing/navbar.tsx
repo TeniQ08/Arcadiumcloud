@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { Container } from "./container";
 import { Button } from "./ui";
@@ -41,9 +42,13 @@ export function Navbar() {
       <Container className="py-4">
         <div className="flex items-center justify-between">
           <a href="#" className="group inline-flex items-center gap-2">
-            <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-white/10 bg-white/5 shadow-glow">
-              <span className="h-2.5 w-2.5 rounded-full bg-gradient-to-b from-arc-highlight to-arc-primary" />
-            </span>
+            <Image
+              src="/arcadium-logo.png"
+              alt="Arcadium logo"
+              width={40}
+              height={40}
+              className="h-10 w-10 rounded-2xl border border-white/10 bg-white object-cover shadow-glow"
+            />
             <span className="text-sm font-semibold tracking-tight text-arc-text">
               Arcadium
             </span>
