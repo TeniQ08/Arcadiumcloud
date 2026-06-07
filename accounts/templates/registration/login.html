@@ -1,12 +1,15 @@
 <!doctype html>
+{% load static %}
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Arcadium Login</title>
+  <link rel="icon" href="{% static 'core/arcadium-logo.png' %}">
   <style>
     body { font-family: Arial, sans-serif; background: #f3f4f6; margin: 0; }
     .card { max-width: 420px; margin: 8vh auto; background: #fff; border-radius: 10px; padding: 24px; box-shadow: 0 8px 25px rgba(0,0,0,.08); }
+    .login-logo { width: 76px; height: 76px; object-fit: cover; display: block; margin-bottom: 16px; border-radius: 18px; border: 1px solid #e5e7eb; }
     h1 { margin-top: 0; font-size: 22px; }
     label { display: block; margin-top: 12px; font-weight: 600; }
     input { width: 100%; box-sizing: border-box; padding: 10px; margin-top: 6px; border: 1px solid #d1d5db; border-radius: 6px; }
@@ -16,6 +19,7 @@
 </head>
 <body>
   <div class="card">
+    <img class="login-logo" src="{% static 'core/arcadium-logo.png' %}" alt="Arcadium logo">
     <h1>Arcadium Staff Login</h1>
     <form method="post">
       {% csrf_token %}
